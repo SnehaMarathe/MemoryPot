@@ -56,7 +56,7 @@ import java.util.concurrent.Executor
 
 private enum class AddStep { CAMERA, EDIT }
 
-@Composable
+
 fun AddMemoryScreen(
     onDone: (String) -> Unit,
     onCancel: () -> Unit
@@ -177,7 +177,6 @@ fun AddMemoryScreen(
     }
 }
 
-@Composable
 private fun CameraCapture(
     onBack: () -> Unit,
     onCaptured: (String) -> Unit,
@@ -273,5 +272,3 @@ private fun CameraCapture(
         }
     }
 }
-
-@Composable
