@@ -2,16 +2,14 @@ name: Android CI
 
 on:
   push:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   pull_request:
-    branches: [ "main", "master" ]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 jobs:
   build:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
 
     steps:
       - name: Checkout
@@ -22,21 +20,21 @@ jobs:
         with:
           distribution: "temurin"
           java-version: "17"
-          cache: gradle
 
-      - name: Gradle permissions
-        run: chmod +x ./gradlew
+      # Install/configure Gradle (bypasses broken ./gradlew wrapper)
+      - name: Set up Gradle
+        uses: gradle/actions/setup-gradle@v3
+        with:
+          gradle-version: "8.7"
 
-      # Optional: speed up and avoid daemon issues in CI
       - name: Build Debug APK
-        run: ./gradlew :app:assembleDebug --stacktrace
+        run: gradle :app:assembleDebug --stacktrace
 
       - name: Run Unit Tests
-        run: ./gradlew :app:testDebugUnitTest --stacktrace
+        run: gradle :app:testDebugUnitTest --stacktrace
 
-      # Release artifacts (requires a signing setup if you want a signed AAB)
       - name: Build Release AAB (unsigned)
-        run: ./gradlew :app:bundleRelease --stacktrace
+        run: gradle :app:bundleRelease --stacktrace
 
       - name: Upload Debug APK
         uses: actions/upload-artifact@v4
