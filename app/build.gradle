@@ -88,6 +88,8 @@ dependencies {
 
     // Coroutines
     implementation "org.jetbrains.kotlinx:kotlinx-coroutines-android:1.8.1"
+    // Play Services Task.await() extensions (used for location)
+    implementation "org.jetbrains.kotlinx:kotlinx-coroutines-play-services:1.8.1"
 
     debugImplementation "androidx.compose.ui:ui-tooling"
     debugImplementation "androidx.compose.ui:ui-test-manifest"
