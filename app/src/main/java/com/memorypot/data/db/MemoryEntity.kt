@@ -18,6 +18,8 @@ data class MemoryEntity(
     val label: String,
     val note: String,
     val placeText: String,
+    /** Comma-separated keywords (AI suggested + user edited). */
+    val keywords: String,
     val photoPath: String,
     val createdAt: Long,
     val isArchived: Boolean,

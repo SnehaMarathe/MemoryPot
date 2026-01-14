@@ -3,6 +3,7 @@ package com.memorypot.di
 import android.content.Context
 import androidx.compose.runtime.staticCompositionLocalOf
 import com.memorypot.data.db.MemoryDatabase
+import com.memorypot.data.repo.AiKeywordHelper
 import com.memorypot.data.repo.ExportImport
 import com.memorypot.data.repo.LocationHelper
 import com.memorypot.data.repo.MemoryRepository
@@ -16,6 +17,7 @@ class AppContainer(appContext: Context) {
     val settings by lazy { SettingsDataStore(context) }
     private val photoStore by lazy { PhotoStore(context) }
     private val locationHelper by lazy { LocationHelper(context) }
+    val aiKeywordHelper by lazy { AiKeywordHelper(context) }
 
     val repository by lazy {
         MemoryRepository(

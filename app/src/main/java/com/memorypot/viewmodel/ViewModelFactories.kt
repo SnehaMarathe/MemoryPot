@@ -2,6 +2,7 @@ package com.memorypot.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.ViewModelProvider
+import com.memorypot.data.repo.AiKeywordHelper
 import com.memorypot.data.repo.ExportImport
 import com.memorypot.data.repo.MemoryRepository
 import com.memorypot.data.settings.SettingsDataStore
@@ -12,9 +13,12 @@ class HomeVmFactory(private val repo: MemoryRepository) : ViewModelProvider.Fact
     }
 }
 
-class AddVmFactory(private val repo: MemoryRepository) : ViewModelProvider.Factory {
+class AddVmFactory(
+    private val repo: MemoryRepository,
+    private val ai: AiKeywordHelper
+) : ViewModelProvider.Factory {
     override fun <T : ViewModel> create(modelClass: Class<T>): T {
-        return AddMemoryViewModel(repo) as T
+        return AddMemoryViewModel(repo, ai) as T
     }
 }
 

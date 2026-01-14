@@ -92,6 +92,9 @@ fun MemoryDetailsScreen(
             if (m.note.isNotBlank()) Text(m.note, style = MaterialTheme.typography.bodyLarge)
 
             InlineRowKeyValue("Place:", m.placeText.ifBlank { "Unknown place" })
+            if (m.keywords.isNotBlank()) {
+                InlineRowKeyValue("Keywords:", m.keywords)
+            }
             InlineRowKeyValue("Saved:", java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)))
 
             val locText = if (m.latitude != null && m.longitude != null) "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}" else "Not saved"

@@ -2,6 +2,8 @@ package com.memorypot.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.activity.compose.rememberLauncherForActivityResult
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -21,6 +23,7 @@ import androidx.compose.foundation.layout.size
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
+import androidx.compose.material3.Card
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
@@ -43,6 +46,13 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
+import androidx.activity.result.contract.ActivityResultContracts
+import androidx.compose.runtime.rememberUpdatedState
+import androidx.compose.runtime.saveable.rememberSaveable
+import androidx.compose.runtime.collectAsState
+import androidx.compose.ui.text.style.TextOverflow
+import androidx.compose.material3.OutlinedButton
+import com.memorypot.data.repo.LocationHelper
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.data.repo.PhotoStore
@@ -62,7 +72,7 @@ fun AddMemoryScreen(
     onCancel: () -> Unit
 ) {
     val container = LocalAppContainer.current
-    val vm: AddMemoryViewModel = viewModel(factory = AddVmFactory(container.repository))
+    val vm: AddMemoryViewModel = viewModel(factory = AddVmFactory(container.repository, container.aiKeywordHelper))
     val state by vm.state.collectAsState()
 
     val context = LocalContext.current
@@ -71,6 +81,13 @@ fun AddMemoryScreen(
 
     var step by remember { mutableStateOf(AddStep.CAMERA) }
     var capturedPath by remember { mutableStateOf<String?>(null) }
+
+    // Location permission (optional, if the user enabled Save location in Settings)
+    val saveLocationEnabled by container.settings.saveLocationFlow.collectAsState(initial = true)
+    val locationHelper = remember { LocationHelper(context) }
+    val locationPermLauncher = rememberLauncherForActivityResult(
+        ActivityResultContracts.RequestMultiplePermissions()
+    ) { /* repo will read permission at save time */ }
 
     Scaffold(
         topBar = {
@@ -94,6 +111,11 @@ fun AddMemoryScreen(
                     if (photoPath == null) {
                         Text("No photo captured.")
                         return@Column
+                    }
+
+                    // Auto-generate AI keywords once per capture
+                    LaunchedEffect(photoPath) {
+                        vm.generateKeywords(photoPath)
                     }
 
                     Column(
@@ -127,6 +149,62 @@ fun AddMemoryScreen(
                             label = { Text("Place (auto-filled if location available)") },
                             modifier = Modifier.fillMaxWidth()
                         )
+
+                        if (saveLocationEnabled && !locationHelper.hasLocationPermission()) {
+                            Card(Modifier.fillMaxWidth()) {
+                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                    Text("Location is enabled, but permission is missing.")
+                                    Text(
+                                        "Grant location permission to auto-fill GPS coordinates and place.",
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    )
+                                    Button(onClick = {
+                                        locationPermLauncher.launch(
+                                            arrayOf(
+                                                Manifest.permission.ACCESS_FINE_LOCATION,
+                                                Manifest.permission.ACCESS_COARSE_LOCATION
+                                            )
+                                        )
+                                    }) {
+                                        Text("Grant location permission")
+                                    }
+                                }
+                            }
+                        }
+
+                        OutlinedTextField(
+                            value = state.keywords,
+                            onValueChange = vm::updateKeywords,
+                            label = { Text("Keywords (AI suggested, editable)") },
+                            modifier = Modifier.fillMaxWidth(),
+                            placeholder = { Text("e.g., beach, sunset, friends") }
+                        )
+
+                        Row(
+                            Modifier.fillMaxWidth(),
+                            horizontalArrangement = Arrangement.spacedBy(8.dp),
+                            verticalAlignment = Alignment.CenterVertically
+                        ) {
+                            OutlinedTextField(
+                                value = state.keywordPrompt,
+                                onValueChange = vm::updateKeywordPrompt,
+                                label = { Text("Add more keywords") },
+                                modifier = Modifier.weight(1f),
+                                singleLine = true,
+                                placeholder = { Text("Type and tap Apply") }
+                            )
+                            Button(onClick = vm::applyKeywordPrompt) {
+                                Text("Apply")
+                            }
+                        }
+
+                        if (state.isGeneratingKeywords) {
+                            Row(verticalAlignment = Alignment.CenterVertically) {
+                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                Spacer(Modifier.size(8.dp))
+                                Text("Generating keywords…")
+                            }
+                        }
 
                         if (state.error != null) {
                             Text(state.error!!, color = MaterialTheme.colorScheme.error)

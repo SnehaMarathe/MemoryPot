@@ -36,6 +36,7 @@ class MemoryRepository(
         label: String,
         note: String,
         placeTextUser: String,
+        keywordsUser: String,
         photoPath: String
     ): String {
         val now = System.currentTimeMillis()
@@ -58,6 +59,7 @@ class MemoryRepository(
             label = label.trim(),
             note = note.trim(),
             placeText = finalPlace,
+            keywords = keywordsUser.trim(),
             photoPath = photoPath,
             createdAt = now,
             isArchived = false,
@@ -73,14 +75,16 @@ class MemoryRepository(
         id: String,
         label: String,
         note: String,
-        placeText: String
+        placeText: String,
+        keywords: String
     ) {
         val existing = dao.getById(id) ?: return
         dao.update(
             existing.copy(
                 label = label.trim(),
                 note = note.trim(),
-                placeText = placeText.trim().ifBlank { "Unknown place" }
+                placeText = placeText.trim().ifBlank { "Unknown place" },
+                keywords = keywords.trim()
             )
         )
     }

@@ -50,6 +50,7 @@ fun EditMemoryScreen(
     var label by remember { mutableStateOf("") }
     var note by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
+    var keywords by remember { mutableStateOf("") }
     var photoPath by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -63,6 +64,7 @@ fun EditMemoryScreen(
             label = m.label
             note = m.note
             place = m.placeText
+            keywords = m.keywords
             photoPath = m.photoPath
         }
         loading = false
@@ -117,6 +119,14 @@ fun EditMemoryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
+            OutlinedTextField(
+                value = keywords,
+                onValueChange = { keywords = it },
+                label = { Text("Keywords") },
+                modifier = Modifier.fillMaxWidth(),
+                placeholder = { Text("comma-separated") }
+            )
+
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
                 TextButton(onClick = onCancel) { Text("Cancel") }
                 Button(
@@ -133,7 +143,7 @@ fun EditMemoryScreen(
     LaunchedEffect(saving) {
         if (!saving) return@LaunchedEffect
         try {
-            repo.updateMemory(id, label, note, place)
+            repo.updateMemory(id, label, note, place, keywords)
             onDone()
         } catch (t: Throwable) {
             error = t.message ?: "Save failed"

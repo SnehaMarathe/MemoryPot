@@ -38,6 +38,7 @@ interface MemoryDao {
             label LIKE '%' || :q || '%'
             OR note LIKE '%' || :q || '%'
             OR placeText LIKE '%' || :q || '%'
+            OR keywords LIKE '%' || :q || '%'
           )
         ORDER BY createdAt DESC
         """

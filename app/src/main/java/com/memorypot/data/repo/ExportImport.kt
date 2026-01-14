@@ -36,6 +36,7 @@ class ExportImport(
         put("label", label)
         put("note", note)
         put("placeText", placeText)
+        put("keywords", keywords)
         put("photoPath", photoPath) // internal path on this device; v1 should export photos too
         put("createdAt", createdAt)
         put("isArchived", isArchived)
