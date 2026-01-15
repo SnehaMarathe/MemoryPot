@@ -38,6 +38,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.memorypot.di.LocalAppContainer
+import com.memorypot.ui.components.AppTopBar
 import com.memorypot.viewmodel.SettingsViewModel
 import com.memorypot.viewmodel.SettingsVmFactory
 import kotlinx.coroutines.launch
@@ -65,11 +66,9 @@ fun SettingsScreen(onBack: () -> Unit) {
 
     Scaffold(
         topBar = {
-            androidx.compose.material3.TopAppBar(
-                title = { Text("Settings") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
-                }
+            AppTopBar(
+                title = "Settings",
+                onBack = onBack
             )
         },
         snackbarHost = { SnackbarHost(snack) }

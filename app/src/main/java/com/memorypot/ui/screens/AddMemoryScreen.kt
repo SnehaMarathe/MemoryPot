@@ -31,6 +31,8 @@ import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.FloatingActionButton
+import androidx.compose.material.icons.filled.CameraAlt
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -51,7 +53,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.data.repo.PhotoStore
 import com.memorypot.di.LocalAppContainer
-import com.memorypot.ui.components.SimpleTopBar
+import com.memorypot.ui.components.AppTopBar
 import com.memorypot.viewmodel.AddMemoryViewModel
 import com.memorypot.viewmodel.AddVmFactory
 import kotlinx.coroutines.launch
@@ -85,7 +87,10 @@ fun AddMemoryScreen(
 
     Scaffold(
         topBar = {
-            SimpleTopBar(title = if (step == AddStep.CAMERA) "Add Memory" else "Details")
+            AppTopBar(
+                title = if (step == AddStep.CAMERA) "Add Memory" else "Details",
+                onBack = onCancel
+            )
         }
     ) { padding ->
         Column(Modifier.padding(padding).fillMaxSize()) {
@@ -318,9 +323,9 @@ private fun CameraCapture(
             }
         }
 
-        Button(
+        FloatingActionButton(
             onClick = {
-                val capture = imageCapture ?: return@Button
+                val capture = imageCapture ?: return@FloatingActionButton
                 val file = photoStore.newPhotoFile()
                 val output = ImageCapture.OutputFileOptions.Builder(file).build()
                 capture.takePicture(
@@ -339,9 +344,9 @@ private fun CameraCapture(
             },
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(20.dp)
+                .padding(bottom = 28.dp)
         ) {
-            Text("Capture")
+            Icon(Icons.Default.CameraAlt, contentDescription = "Capture")
         }
     }
 }

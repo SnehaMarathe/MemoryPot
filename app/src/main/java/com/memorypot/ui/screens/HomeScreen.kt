@@ -53,7 +53,7 @@ import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.Pill
 import com.memorypot.ui.components.SearchField
-import com.memorypot.ui.components.SimpleTopBar
+import com.memorypot.ui.components.AppTopBar
 import com.memorypot.ui.components.SuggestionCard
 import com.memorypot.viewmodel.HomeFilter
 import com.memorypot.viewmodel.HomeViewModel
@@ -106,10 +106,10 @@ fun HomeScreen(
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
         topBar = {
-            SimpleTopBar(
+            AppTopBar(
                 title = "Memory Pot",
                 actionIcon = Icons.Default.Settings,
-                actionLabel = "",
+                actionLabel = "Settings",
                 onAction = onSettings
             )
         },

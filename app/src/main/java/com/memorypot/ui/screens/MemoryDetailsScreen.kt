@@ -37,7 +37,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.InlineRowKeyValue
-import com.memorypot.ui.components.SimpleTopBar
+import com.memorypot.ui.components.AppTopBar
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
 
@@ -59,14 +59,12 @@ fun MemoryDetailsScreen(
 
     Scaffold(
         topBar = {
-            androidx.compose.material3.TopAppBar(
-                title = { Text("Details") },
-                navigationIcon = {
-                    IconButton(onClick = onBack) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
-                },
-                actions = {
-                    IconButton(onClick = onSettings) { Icon(Icons.Default.Settings, contentDescription = "Settings") }
-                }
+            AppTopBar(
+                title = "Details",
+                onBack = onBack,
+                actionIcon = Icons.Default.Settings,
+                actionLabel = "Settings",
+                onAction = onSettings
             )
         }
     ) { padding ->

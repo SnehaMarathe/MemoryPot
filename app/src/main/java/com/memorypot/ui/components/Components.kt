@@ -13,6 +13,7 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
+import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
 import androidx.compose.material3.AssistChip
@@ -29,6 +30,7 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.TextField
 import androidx.compose.material3.TextFieldDefaults
+import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
@@ -40,30 +42,43 @@ import androidx.compose.ui.unit.dp
 import com.memorypot.data.repo.Confidence
 import com.memorypot.data.repo.LocationSuggestion
 
+/**
+ * A “Play Store ready” top bar:
+ * - centered title
+ * - optional back button
+ * - optional single action icon button
+ */
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
-fun SimpleTopBar(
+fun AppTopBar(
     title: String,
+    onBack: (() -> Unit)? = null,
     actionIcon: ImageVector? = null,
     actionLabel: String? = null,
     onAction: (() -> Unit)? = null
 ) {
-    TopAppBar(
+    CenterAlignedTopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-        colors = TopAppBarDefaults.topAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background
-        ),
-        actions = {
-            if (actionIcon != null && onAction != null) {
-                TextButton(onClick = onAction) {
-                    Icon(actionIcon, contentDescription = actionLabel ?: "")
-                    if (!actionLabel.isNullOrBlank()) {
-                        Spacer(Modifier.width(6.dp))
-                        Text(actionLabel)
-                    }
+        navigationIcon = {
+            if (onBack != null) {
+                IconButton(onClick = onBack) {
+                    Icon(
+                        imageVector = androidx.compose.material.icons.Icons.Default.ArrowBack,
+                        contentDescription = "Back"
+                    )
                 }
             }
-        }
+        },
+        actions = {
+            if (actionIcon != null && onAction != null) {
+                IconButton(onClick = onAction) {
+                    Icon(actionIcon, contentDescription = actionLabel ?: "")
+                }
+            }
+        },
+        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
+            containerColor = MaterialTheme.colorScheme.background
+        )
     )
 }
 

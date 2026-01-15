@@ -31,7 +31,7 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
-import com.memorypot.ui.components.SimpleTopBar
+import com.memorypot.ui.components.AppTopBar
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
 import kotlinx.coroutines.Dispatchers
@@ -72,11 +72,9 @@ fun EditMemoryScreen(
 
     Scaffold(
         topBar = {
-            androidx.compose.material3.TopAppBar(
-                title = { Text("Edit") },
-                navigationIcon = {
-                    IconButton(onClick = onCancel) { Icon(Icons.Default.ArrowBack, contentDescription = "Back") }
-                }
+            AppTopBar(
+                title = "Edit",
+                onBack = onCancel
             )
         }
     ) { padding ->
