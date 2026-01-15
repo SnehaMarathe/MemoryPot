@@ -3,7 +3,6 @@ package com.memorypot.ui.screens
 import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
-import androidx.activity.result.contract.ActivityResultContracts
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
@@ -46,11 +45,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.viewinterop.AndroidView
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
-import androidx.activity.result.contract.ActivityResultContracts
-import androidx.compose.runtime.rememberUpdatedState
-import androidx.compose.runtime.saveable.rememberSaveable
-import androidx.compose.runtime.collectAsState
-import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.material3.OutlinedButton
 import com.memorypot.data.repo.LocationHelper
 import androidx.lifecycle.viewmodel.compose.viewModel
@@ -86,7 +80,7 @@ fun AddMemoryScreen(
     val saveLocationEnabled by container.settings.saveLocationFlow.collectAsState(initial = true)
     val locationHelper = remember { LocationHelper(context) }
     val locationPermLauncher = rememberLauncherForActivityResult(
-        ActivityResultContracts.RequestMultiplePermissions()
+        androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { /* repo will read permission at save time */ }
 
     Scaffold(
