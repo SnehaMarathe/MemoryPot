@@ -38,6 +38,7 @@ import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.InlineRowKeyValue
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.KeywordChipsDisplay
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
 
@@ -91,7 +92,7 @@ fun MemoryDetailsScreen(
 
             InlineRowKeyValue("Place:", m.placeText.ifBlank { "Unknown place" })
             if (m.keywords.isNotBlank()) {
-                InlineRowKeyValue("Keywords:", m.keywords)
+                KeywordChipsDisplay(m.keywords)
             }
             InlineRowKeyValue("Saved:", java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)))
 

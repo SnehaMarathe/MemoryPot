@@ -32,6 +32,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.KeywordEditor
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
 import kotlinx.coroutines.Dispatchers
@@ -51,6 +52,7 @@ fun EditMemoryScreen(
     var note by remember { mutableStateOf("") }
     var place by remember { mutableStateOf("") }
     var keywords by remember { mutableStateOf("") }
+    var keywordPrompt by remember { mutableStateOf("") }
     var photoPath by remember { mutableStateOf("") }
     var error by remember { mutableStateOf<String?>(null) }
     var saving by remember { mutableStateOf(false) }
@@ -117,12 +119,22 @@ fun EditMemoryScreen(
                 modifier = Modifier.fillMaxWidth()
             )
 
-            OutlinedTextField(
-                value = keywords,
-                onValueChange = { keywords = it },
-                label = { Text("Keywords") },
-                modifier = Modifier.fillMaxWidth(),
-                placeholder = { Text("comma-separated") }
+            KeywordEditor(
+                keywords = keywords,
+                onKeywordsChange = { keywords = it },
+                prompt = keywordPrompt,
+                onPromptChange = { keywordPrompt = it },
+                onApplyPrompt = {
+                    val merged = (keywords + "," + keywordPrompt)
+                        .split(',', '\n', ';')
+                        .map { it.trim() }
+                        .filter { it.isNotBlank() }
+                        .distinctBy { it.lowercase() }
+                        .joinToString(", ")
+                    keywords = merged
+                    keywordPrompt = ""
+                },
+                modifier = Modifier.fillMaxWidth()
             )
 
             Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {

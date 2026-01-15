@@ -5,6 +5,8 @@ import androidx.compose.foundation.clickable
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
+import androidx.compose.foundation.layout.ExperimentalLayoutApi
+import androidx.compose.foundation.layout.FlowRow
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
@@ -16,6 +18,7 @@ import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Close
 import androidx.compose.material.icons.filled.Search
+import androidx.compose.material.icons.filled.Tag
 import androidx.compose.material3.AssistChip
 import androidx.compose.material3.AssistChipDefaults
 import androidx.compose.material3.Card
@@ -23,8 +26,12 @@ import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
+import androidx.compose.material3.InputChip
+import androidx.compose.material3.InputChipDefaults
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
+import androidx.compose.material3.OutlinedCard
+import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Surface
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
@@ -233,5 +240,156 @@ fun Pill(label: String, modifier: Modifier = Modifier) {
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+    }
+}
+
+// -------------------------
+// Premium keyword chips UI
+// -------------------------
+
+private fun parseKeywords(raw: String): List<String> =
+    raw
+        .split(',', '\n', ';')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+        .distinctBy { it.lowercase() }
+
+private fun toKeywordString(keywords: List<String>): String = keywords.joinToString(", ")
+
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun KeywordChipsDisplay(
+    keywords: String,
+    modifier: Modifier = Modifier,
+    title: String = "Keywords"
+) {
+    val list = parseKeywords(keywords)
+    if (list.isEmpty()) return
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(8.dp)) {
+        Text(title, style = MaterialTheme.typography.titleSmall, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        FlowRow(
+            horizontalArrangement = Arrangement.spacedBy(8.dp),
+            verticalArrangement = Arrangement.spacedBy(8.dp)
+        ) {
+            list.forEach { kw ->
+                AssistChip(
+                    onClick = {},
+                    enabled = false,
+                    label = { Text(kw) },
+                    colors = AssistChipDefaults.assistChipColors(
+                        disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
+                        disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                )
+            }
+        }
+    }
+}
+
+/**
+ * A premium editor:
+ * - shows keywords as removable chips
+ * - merges user prompt keywords into the existing list
+ * - keeps persistence format as a single comma-separated string
+ */
+@OptIn(ExperimentalLayoutApi::class)
+@Composable
+fun KeywordEditor(
+    keywords: String,
+    onKeywordsChange: (String) -> Unit,
+    prompt: String,
+    onPromptChange: (String) -> Unit,
+    onApplyPrompt: () -> Unit,
+    modifier: Modifier = Modifier,
+    title: String = "Keywords",
+    supportingText: String = "AI suggestions are editable. Add your own keywords and we’ll merge them."
+) {
+    val list = parseKeywords(keywords)
+
+    OutlinedCard(
+        modifier = modifier.fillMaxWidth(),
+        shape = RoundedCornerShape(24.dp),
+        colors = CardDefaults.outlinedCardColors(containerColor = MaterialTheme.colorScheme.surface)
+    ) {
+        Column(
+            modifier = Modifier.padding(14.dp),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
+        ) {
+            Row(verticalAlignment = Alignment.CenterVertically) {
+                Icon(Icons.Default.Tag, contentDescription = null)
+                Spacer(Modifier.width(8.dp))
+                Column {
+                    Text(title, style = MaterialTheme.typography.titleMedium)
+                    Text(
+                        supportingText,
+                        style = MaterialTheme.typography.bodySmall,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+            }
+
+            if (list.isEmpty()) {
+                Text(
+                    "No keywords yet.",
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            } else {
+                FlowRow(
+                    horizontalArrangement = Arrangement.spacedBy(8.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    list.forEach { kw ->
+                        InputChip(
+                            selected = false,
+                            onClick = {},
+                            label = { Text(kw, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+                            trailingIcon = {
+                                IconButton(onClick = {
+                                    val updated = list.filterNot { it.equals(kw, ignoreCase = true) }
+                                    onKeywordsChange(toKeywordString(updated))
+                                }) {
+                                    Icon(Icons.Default.Close, contentDescription = "Remove")
+                                }
+                            },
+                            colors = InputChipDefaults.inputChipColors(
+                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
+                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
+                                trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
+                            )
+                        )
+                    }
+                }
+            }
+
+            Row(
+                modifier = Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedTextField(
+                    value = prompt,
+                    onValueChange = onPromptChange,
+                    modifier = Modifier.weight(1f),
+                    singleLine = true,
+                    label = { Text("Add more keywords") },
+                    placeholder = { Text("e.g., passport, hotel, keys") }
+                )
+                OutlinedButton(onClick = onApplyPrompt, enabled = prompt.trim().isNotBlank()) {
+                    Text("Add")
+                }
+            }
+
+            // Advanced (paste/edit) — keeps power users happy
+            OutlinedTextField(
+                value = keywords,
+                onValueChange = onKeywordsChange,
+                modifier = Modifier.fillMaxWidth(),
+                label = { Text("Edit as text") },
+                placeholder = { Text("Comma-separated keywords") },
+                minLines = 2
+            )
+        }
     }
 }

@@ -2,6 +2,11 @@ package com.memorypot.ui.screens
 
 import android.Manifest
 import android.content.pm.PackageManager
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.expandVertically
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
+import androidx.compose.animation.shrinkVertically
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageCapture
@@ -33,6 +38,9 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material.icons.filled.CameraAlt
+import androidx.compose.animation.AnimatedVisibility
+import androidx.compose.animation.fadeIn
+import androidx.compose.animation.fadeOut
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.LaunchedEffect
@@ -54,6 +62,7 @@ import coil.compose.AsyncImage
 import com.memorypot.data.repo.PhotoStore
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.KeywordEditor
 import com.memorypot.viewmodel.AddMemoryViewModel
 import com.memorypot.viewmodel.AddVmFactory
 import kotlinx.coroutines.launch
@@ -171,33 +180,20 @@ fun AddMemoryScreen(
                             }
                         }
 
-                        OutlinedTextField(
-                            value = state.keywords,
-                            onValueChange = vm::updateKeywords,
-                            label = { Text("Keywords (AI suggested, editable)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            placeholder = { Text("e.g., beach, sunset, friends") }
+                        KeywordEditor(
+                            keywords = state.keywords,
+                            onKeywordsChange = vm::updateKeywords,
+                            prompt = state.keywordPrompt,
+                            onPromptChange = vm::updateKeywordPrompt,
+                            onApplyPrompt = vm::applyKeywordPrompt,
+                            modifier = Modifier.fillMaxWidth()
                         )
 
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(8.dp),
-                            verticalAlignment = Alignment.CenterVertically
+                        AnimatedVisibility(
+                            visible = state.isGeneratingKeywords,
+                            enter = fadeIn() + expandVertically(),
+                            exit = fadeOut() + shrinkVertically()
                         ) {
-                            OutlinedTextField(
-                                value = state.keywordPrompt,
-                                onValueChange = vm::updateKeywordPrompt,
-                                label = { Text("Add more keywords") },
-                                modifier = Modifier.weight(1f),
-                                singleLine = true,
-                                placeholder = { Text("Type and tap Apply") }
-                            )
-                            Button(onClick = vm::applyKeywordPrompt) {
-                                Text("Apply")
-                            }
-                        }
-
-                        if (state.isGeneratingKeywords) {
                             Row(verticalAlignment = Alignment.CenterVertically) {
                                 CircularProgressIndicator(modifier = Modifier.size(18.dp))
                                 Spacer(Modifier.size(8.dp))
