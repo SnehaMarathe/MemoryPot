@@ -269,7 +269,6 @@ private fun MemoryCard(
         modifier = Modifier
             .fillMaxWidth()
             .height(232.dp)
-            .animateItemPlacement()
             .clip(RoundedCornerShape(22.dp))
             .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(22.dp))
             .clickable { onOpen() },

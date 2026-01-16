@@ -54,12 +54,8 @@ import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.memorypot.data.repo.Confidence
 import com.memorypot.data.repo.LocationSuggestion
-
-// Optional blur for iOS-like bottom bars (Android 12+)
 import android.os.Build
-import androidx.compose.ui.graphics.graphicsLayer
-import android.graphics.RenderEffect
-import android.graphics.Shader
+import androidx.compose.foundation.layout.RowScope
 
 /**
  * A “Play Store ready” top bar:
@@ -385,22 +381,15 @@ fun IOSRow(
 @Composable
 fun IOSBottomActionBar(
     modifier: Modifier = Modifier,
-    content: @Composable () -> Unit
+    content: @Composable RowScope.() -> Unit
 ) {
-    // iOS-like blurred bar where supported. Fallback: translucent surface.
-    val blurModifier = remember {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            Modifier.graphicsLayer {
-                renderEffect = RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP)
-            }
-        } else Modifier
-    }
+    // iOS-like “frosted” bar: we use a translucent surface for broad compatibility.
+    // (A true blur can be added later with proper compose RenderEffect bridging.)
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .imePadding()
-            .navigationBarsPadding()
-            .then(blurModifier),
+            .navigationBarsPadding(),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 2.dp,
         shadowElevation = 6.dp
