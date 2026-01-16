@@ -9,8 +9,10 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
-import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.AlertDialog
@@ -74,11 +76,21 @@ fun SettingsScreen(onBack: () -> Unit) {
         snackbarHost = { SnackbarHost(snack) }
     ) { padding ->
         Column(
-            Modifier.padding(padding).fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 12.dp)
+                .imePadding()
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+            LazyColumn(
+                modifier = Modifier.fillMaxWidth(),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
                         Column(Modifier.weight(1f)) {
                             Text("Save location", style = MaterialTheme.typography.titleMedium)
@@ -93,26 +105,34 @@ fun SettingsScreen(onBack: () -> Unit) {
                         }
                         Switch(checked = state.nearbyPrompt, onCheckedChange = vm::setNearbyPrompt)
                     }
-                }
-            }
-
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Export / Backup", style = MaterialTheme.typography.titleMedium)
-                    Text("v0 exports JSON metadata only (photos not embedded).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                    Button(onClick = { createDoc.launch("memory-pot-export.json") }) {
-                        Text("Export JSON")
+                        }
                     }
                 }
-            }
 
-            Card(Modifier.fillMaxWidth()) {
-                Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Text("Danger zone", style = MaterialTheme.typography.titleMedium)
-                    Button(onClick = { confirmClear = true }) {
-                        Text("Clear all data")
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Export / Backup", style = MaterialTheme.typography.titleMedium)
+                            Text("v0 exports JSON metadata only (photos not embedded).", color = MaterialTheme.colorScheme.onSurfaceVariant)
+                            Button(onClick = { createDoc.launch("memory-pot-export.json") }) {
+                                Text("Export JSON")
+                            }
+                        }
                     }
                 }
+
+                item {
+                    Card(Modifier.fillMaxWidth()) {
+                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
+                            Text("Danger zone", style = MaterialTheme.typography.titleMedium)
+                            Button(onClick = { confirmClear = true }) {
+                                Text("Clear all data")
+                            }
+                        }
+                    }
+                }
+
+                item { Spacer(Modifier.padding(bottom = 84.dp)) }
             }
         }
 

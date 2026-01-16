@@ -4,10 +4,15 @@ import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material.icons.filled.Delete
@@ -78,26 +83,59 @@ fun MemoryDetailsScreen(
         }
 
         Column(
-            Modifier.padding(padding).fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 12.dp)
+                .imePadding()
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            AsyncImage(
-                model = m.photoPath,
-                contentDescription = "Photo",
-                modifier = Modifier.fillMaxWidth().height(320.dp)
-            )
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    AsyncImage(
+                        model = m.photoPath,
+                        contentDescription = "Photo",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(4f / 3f)
+                            .heightIn(max = 360.dp)
+                    )
+                }
 
-            Text(m.label.ifBlank { "Untitled" }, style = MaterialTheme.typography.headlineSmall)
-            if (m.note.isNotBlank()) Text(m.note, style = MaterialTheme.typography.bodyLarge)
+                item {
+                    Text(m.label.ifBlank { "Untitled" }, style = MaterialTheme.typography.headlineSmall)
+                }
 
-            InlineRowKeyValue("Place:", m.placeText.ifBlank { "Unknown place" })
-            if (m.keywords.isNotBlank()) {
-                KeywordChipsDisplay(m.keywords)
+                if (m.note.isNotBlank()) {
+                    item { Text(m.note, style = MaterialTheme.typography.bodyLarge) }
+                }
+
+                item { InlineRowKeyValue("Place:", m.placeText.ifBlank { "Unknown place" }) }
+
+                if (m.keywords.isNotBlank()) {
+                    item { KeywordChipsDisplay(m.keywords) }
+                }
+
+                item {
+                    InlineRowKeyValue(
+                        "Saved:",
+                        java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt))
+                    )
+                }
+
+                item {
+                    val locText = if (m.latitude != null && m.longitude != null)
+                        "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
+                    else "Not saved"
+                    InlineRowKeyValue("Location:", locText)
+                }
             }
-            InlineRowKeyValue("Saved:", java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)))
-
-            val locText = if (m.latitude != null && m.longitude != null) "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}" else "Not saved"
-            InlineRowKeyValue("Location:", locText)
 
             Row(
                 Modifier.fillMaxWidth(),

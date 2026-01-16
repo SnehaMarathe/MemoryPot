@@ -6,8 +6,13 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
+import androidx.compose.foundation.layout.heightIn
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -27,6 +32,7 @@ import androidx.compose.runtime.remember
 import androidx.compose.runtime.setValue
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
@@ -94,57 +100,106 @@ fun EditMemoryScreen(
         }
 
         Column(
-            Modifier.padding(padding).fillMaxSize().padding(12.dp),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .padding(horizontal = 12.dp)
+                .imePadding()
+                .navigationBarsPadding(),
+            verticalArrangement = Arrangement.spacedBy(10.dp)
         ) {
-            AsyncImage(model = photoPath, contentDescription = "Photo", modifier = Modifier.fillMaxWidth().height(260.dp))
+            LazyColumn(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f),
+                verticalArrangement = Arrangement.spacedBy(12.dp)
+            ) {
+                item {
+                    AsyncImage(
+                        model = photoPath,
+                        contentDescription = "Photo",
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .aspectRatio(4f / 3f)
+                            .heightIn(max = 320.dp)
+                    )
+                }
 
-            OutlinedTextField(
-                value = label,
-                onValueChange = { label = it },
-                label = { Text("Label") },
-                modifier = Modifier.fillMaxWidth(),
-                singleLine = true
-            )
-            OutlinedTextField(
-                value = note,
-                onValueChange = { note = it },
-                label = { Text("Note") },
-                modifier = Modifier.fillMaxWidth()
-            )
-            OutlinedTextField(
-                value = place,
-                onValueChange = { place = it },
-                label = { Text("Place") },
-                modifier = Modifier.fillMaxWidth()
-            )
+                item {
+                    OutlinedTextField(
+                        value = label,
+                        onValueChange = { label = it },
+                        label = { Text("Label") },
+                        modifier = Modifier.fillMaxWidth(),
+                        singleLine = true
+                    )
+                }
 
-            KeywordEditor(
-                keywords = keywords,
-                onKeywordsChange = { keywords = it },
-                prompt = keywordPrompt,
-                onPromptChange = { keywordPrompt = it },
-                onApplyPrompt = {
-                    val merged = (keywords + "," + keywordPrompt)
-                        .split(',', '\n', ';')
-                        .map { it.trim() }
-                        .filter { it.isNotBlank() }
-                        .distinctBy { it.lowercase() }
-                        .joinToString(", ")
-                    keywords = merged
-                    keywordPrompt = ""
-                },
-                modifier = Modifier.fillMaxWidth()
-            )
+                item {
+                    OutlinedTextField(
+                        value = note,
+                        onValueChange = { note = it },
+                        label = { Text("Note") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
 
-            Row(Modifier.fillMaxWidth(), horizontalArrangement = Arrangement.SpaceBetween, verticalAlignment = Alignment.CenterVertically) {
-                TextButton(onClick = onCancel) { Text("Cancel") }
+                item {
+                    OutlinedTextField(
+                        value = place,
+                        onValueChange = { place = it },
+                        label = { Text("Place") },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                item {
+                    KeywordEditor(
+                        keywords = keywords,
+                        onKeywordsChange = { keywords = it },
+                        prompt = keywordPrompt,
+                        onPromptChange = { keywordPrompt = it },
+                        onApplyPrompt = {
+                            val merged = (keywords + "," + keywordPrompt)
+                                .split(',', '\n', ';')
+                                .map { it.trim() }
+                                .filter { it.isNotBlank() }
+                                .distinctBy { it.lowercase() }
+                                .joinToString(", ")
+                            keywords = merged
+                            keywordPrompt = ""
+                        },
+                        modifier = Modifier.fillMaxWidth()
+                    )
+                }
+
+                item {
+                    if (error != null) {
+                        Text(error!!)
+                    }
+                }
+            }
+
+            Row(
+                Modifier.fillMaxWidth(),
+                horizontalArrangement = Arrangement.spacedBy(10.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                TextButton(
+                    onClick = onCancel,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Cancel") }
                 Button(
-                    onClick = {
-                        saving = true
-                    },
-                    enabled = !saving
-                ) { Text("Save") }
+                    onClick = { saving = true },
+                    enabled = !saving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (saving) {
+                        CircularProgressIndicator()
+                        Spacer(Modifier.padding(4.dp))
+                    }
+                    Text("Save")
+                }
             }
         }
     }

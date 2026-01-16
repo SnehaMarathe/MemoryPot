@@ -19,11 +19,23 @@ import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
+import androidx.compose.foundation.layout.imePadding
+import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.layout.WindowInsets
+import androidx.compose.foundation.layout.safeDrawing
+import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.ui.layout.ContentScale
+import androidx.compose.foundation.layout.aspectRatio
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
 import androidx.compose.material3.Button
@@ -102,7 +114,12 @@ fun AddMemoryScreen(
             )
         }
     ) { padding ->
-        Column(Modifier.padding(padding).fillMaxSize()) {
+        Column(
+            Modifier
+                .padding(padding)
+                .fillMaxSize()
+                .windowInsetsPadding(WindowInsets.safeDrawing)
+        ) {
             when (step) {
                 AddStep.CAMERA -> {
                     CameraCapture(
@@ -127,102 +144,138 @@ fun AddMemoryScreen(
                     }
 
                     Column(
-                        Modifier.fillMaxSize().padding(12.dp),
-                        verticalArrangement = Arrangement.spacedBy(12.dp)
+                        Modifier
+                            .fillMaxSize()
+                            .padding(horizontal = 12.dp)
+                            .imePadding()
+                            .navigationBarsPadding(),
+                        verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
-                        AsyncImage(
-                            model = photoPath,
-                            contentDescription = "Preview",
+                        // Scrollable content (keeps actions always reachable on small screens)
+                        LazyColumn(
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .height(260.dp)
-                        )
+                                .weight(1f),
+                            verticalArrangement = Arrangement.spacedBy(12.dp)
+                        ) {
+                            item {
+                                AsyncImage(
+                                    model = photoPath,
+                                    contentDescription = "Preview",
+                                    contentScale = ContentScale.Crop,
+                                    modifier = Modifier
+                                        .fillMaxWidth()
+                                        .aspectRatio(4f / 3f)
+                                        .heightIn(max = 320.dp)
+                                )
+                            }
 
-                        OutlinedTextField(
-                            value = state.label,
-                            onValueChange = vm::updateLabel,
-                            label = { Text("Label (recommended)") },
-                            modifier = Modifier.fillMaxWidth(),
-                            singleLine = true
-                        )
-                        OutlinedTextField(
-                            value = state.note,
-                            onValueChange = vm::updateNote,
-                            label = { Text("Note") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
-                        OutlinedTextField(
-                            value = state.placeText,
-                            onValueChange = vm::updatePlace,
-                            label = { Text("Place (auto-filled if location available)") },
-                            modifier = Modifier.fillMaxWidth()
-                        )
+                            item {
+                                OutlinedTextField(
+                                    value = state.label,
+                                    onValueChange = vm::updateLabel,
+                                    label = { Text("Label") },
+                                    supportingText = { Text("Give it a quick name so you can search later.") },
+                                    modifier = Modifier.fillMaxWidth(),
+                                    singleLine = true
+                                )
+                            }
 
-                        if (saveLocationEnabled && !locationHelper.hasLocationPermission()) {
-                            Card(Modifier.fillMaxWidth()) {
-                                Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
-                                    Text("Location is enabled, but permission is missing.")
-                                    Text(
-                                        "Grant location permission to auto-fill GPS coordinates and place.",
-                                        color = MaterialTheme.colorScheme.onSurfaceVariant
-                                    )
-                                    Button(onClick = {
-                                        locationPermLauncher.launch(
-                                            arrayOf(
-                                                Manifest.permission.ACCESS_FINE_LOCATION,
-                                                Manifest.permission.ACCESS_COARSE_LOCATION
+                            item {
+                                OutlinedTextField(
+                                    value = state.note,
+                                    onValueChange = vm::updateNote,
+                                    label = { Text("Note") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            item {
+                                OutlinedTextField(
+                                    value = state.placeText,
+                                    onValueChange = vm::updatePlace,
+                                    label = { Text("Place") },
+                                    supportingText = { Text("Auto-filled if location is available.") },
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            if (saveLocationEnabled && !locationHelper.hasLocationPermission()) {
+                                item {
+                                    Card(Modifier.fillMaxWidth()) {
+                                        Column(Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(8.dp)) {
+                                            Text("Enable location permission")
+                                            Text(
+                                                "To auto-save GPS + place, allow location access.",
+                                                color = MaterialTheme.colorScheme.onSurfaceVariant
                                             )
-                                        )
-                                    }) {
-                                        Text("Grant location permission")
+                                            Button(onClick = {
+                                                locationPermLauncher.launch(
+                                                    arrayOf(
+                                                        Manifest.permission.ACCESS_FINE_LOCATION,
+                                                        Manifest.permission.ACCESS_COARSE_LOCATION
+                                                    )
+                                                )
+                                            }) {
+                                                Text("Grant permission")
+                                            }
+                                        }
                                     }
+                                }
+                            }
+
+                            item {
+                                KeywordEditor(
+                                    keywords = state.keywords,
+                                    onKeywordsChange = vm::updateKeywords,
+                                    prompt = state.keywordPrompt,
+                                    onPromptChange = vm::updateKeywordPrompt,
+                                    onApplyPrompt = vm::applyKeywordPrompt,
+                                    modifier = Modifier.fillMaxWidth()
+                                )
+                            }
+
+                            item {
+                                AnimatedVisibility(
+                                    visible = state.isGeneratingKeywords,
+                                    enter = fadeIn() + expandVertically(),
+                                    exit = fadeOut() + shrinkVertically()
+                                ) {
+                                    Row(verticalAlignment = Alignment.CenterVertically) {
+                                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                        Spacer(Modifier.size(8.dp))
+                                        Text("Generating keywords…")
+                                    }
+                                }
+                            }
+
+                            if (state.error != null) {
+                                item {
+                                    Text(state.error!!, color = MaterialTheme.colorScheme.error)
                                 }
                             }
                         }
 
-                        KeywordEditor(
-                            keywords = state.keywords,
-                            onKeywordsChange = vm::updateKeywords,
-                            prompt = state.keywordPrompt,
-                            onPromptChange = vm::updateKeywordPrompt,
-                            onApplyPrompt = vm::applyKeywordPrompt,
-                            modifier = Modifier.fillMaxWidth()
-                        )
-
-                        AnimatedVisibility(
-                            visible = state.isGeneratingKeywords,
-                            enter = fadeIn() + expandVertically(),
-                            exit = fadeOut() + shrinkVertically()
-                        ) {
-                            Row(verticalAlignment = Alignment.CenterVertically) {
-                                CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                                Spacer(Modifier.size(8.dp))
-                                Text("Generating keywords…")
-                            }
-                        }
-
-                        if (state.error != null) {
-                            Text(state.error!!, color = MaterialTheme.colorScheme.error)
-                        }
-
+                        // Fixed bottom actions
                         Row(
                             Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.SpaceBetween,
+                            horizontalArrangement = Arrangement.spacedBy(10.dp),
                             verticalAlignment = Alignment.CenterVertically
                         ) {
-                            TextButton(onClick = {
-                                // user abandons -> delete captured file
-                                runCatching { File(photoPath).delete() }
-                                onCancel()
-                            }) {
+                            OutlinedButton(
+                                onClick = {
+                                    runCatching { File(photoPath).delete() }
+                                    onCancel()
+                                },
+                                modifier = Modifier.weight(1f)
+                            ) {
                                 Text("Cancel")
                             }
 
                             Button(
-                                onClick = {
-                                    vm.save(photoPath, onDone)
-                                },
-                                enabled = !state.isSaving
+                                onClick = { vm.save(photoPath, onDone) },
+                                enabled = !state.isSaving,
+                                modifier = Modifier.weight(1f)
                             ) {
                                 if (state.isSaving) {
                                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
@@ -232,13 +285,12 @@ fun AddMemoryScreen(
                             }
                         }
 
-                        // Lightweight suggestions hint (optional): show top 1 under place field when label changes.
+                        // Lightweight suggestions hint: only prefill when place is empty.
                         LaunchedEffect(state.label) {
                             val l = state.label.trim()
                             if (l.isNotBlank()) {
                                 val sugg = vm.suggestionsForLabel(l)
                                 if (sugg.isNotEmpty() && state.placeText.isBlank()) {
-                                    // Don't force; just prefill gently with best guess.
                                     vm.updatePlace(sugg.first().placeText)
                                 }
                             }
