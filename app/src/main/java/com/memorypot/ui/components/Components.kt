@@ -11,6 +11,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
@@ -526,38 +527,37 @@ fun KeywordEditor(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     list.forEach { kw ->
-                        // NOTE: avoid using IconButton inside chips.
-                        // IconButton has a large minimum touch target which can shrink/clip the
-                        // label area on small screens (making the first letter appear “missing”).
-                        // We use a lightweight clickable icon instead.
-                        InputChip(
-                            selected = false,
-                            onClick = {},
-                            modifier = Modifier.padding(start = 2.dp),
-                            label = { Text(kw, maxLines = 1, overflow = TextOverflow.Ellipsis) },
-                            trailingIcon = {
-                                Box(
+                        // Some OEM/font combos can visually clip the first glyph inside Material3 chips.
+                        // To guarantee perfect rendering, we use our own simple "pill" chip.
+                        Surface(
+                            shape = RoundedCornerShape(999.dp),
+                            color = MaterialTheme.colorScheme.surfaceVariant
+                        ) {
+                            Row(
+                                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
+                                verticalAlignment = Alignment.CenterVertically,
+                                horizontalArrangement = Arrangement.spacedBy(8.dp)
+                            ) {
+                                Text(
+                                    text = kw,
+                                    maxLines = 1,
+                                    overflow = TextOverflow.Ellipsis,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                                Icon(
+                                    imageVector = Icons.Default.Close,
+                                    contentDescription = "Remove",
+                                    tint = MaterialTheme.colorScheme.onSurfaceVariant,
                                     modifier = Modifier
-                                        .padding(end = 6.dp)
+                                        .size(18.dp)
                                         .clickable {
                                             val updated = list.filterNot { it.equals(kw, ignoreCase = true) }
                                             onKeywordsChange(toKeywordString(updated))
-                                        },
-                                    contentAlignment = Alignment.Center
-                                ) {
-                                    Icon(
-                                        Icons.Default.Close,
-                                        contentDescription = "Remove",
-                                        modifier = Modifier.padding(2.dp)
-                                    )
-                                }
-                            },
-                            colors = InputChipDefaults.inputChipColors(
-                                containerColor = MaterialTheme.colorScheme.surfaceVariant,
-                                labelColor = MaterialTheme.colorScheme.onSurfaceVariant,
-                                trailingIconColor = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        )
+                                        }
+                                        .padding(2.dp)
+                                )
+                            }
+                        }
                     }
                 }
             }
