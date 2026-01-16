@@ -30,6 +30,16 @@ import java.util.Locale
  */
 class AiKeywordHelper(private val context: Context) {
 
+    // We keep track of where a keyword came from so we can rank more precisely.
+    // Users primarily expect concrete nouns (objects), so we prefer those.
+    private enum class Source { OBJECT_DIRECT, OBJECT_CROP, SCENE, OCR }
+
+    private data class Candidate(
+        val token: String,
+        val score: Float,
+        val source: Source
+    )
+
     private val labeler: ImageLabeler by lazy {
         // Lower internal threshold so we can apply our own ranking + dedupe logic.
         // This helps capture more object/scene candidates, especially in indoor or low-light shots.
@@ -75,102 +85,156 @@ class AiKeywordHelper(private val context: Context) {
                 ?: error("Failed to decode image")
             val image = InputImage.fromBitmap(bmp, /* rotationDegrees = */ 0)
 
-            // 1) Scene / general labels ("beach", "food", "sunset")
-            val sceneLabels = runCatching {
-                labeler.process(image).await()
-                    .sortedByDescending { it.confidence }
-                    .filter { it.confidence >= minConfidence }
-                    .map { it.text.trim() to it.confidence }
-            }.getOrElse { emptyList() }
+            val totalArea = (bmp.width * bmp.height).toFloat().coerceAtLeast(1f)
 
-            // 2) Object-centric labels ("bottle", "shoe", "cat")
-            //    ML Kit object classification can be conservative; we also do a second pass by
-            //    cropping each detected object and running image labeling on the crop.
-            val objectLabels = runCatching {
+            // --- A) OBJECTS (primary) ---------------------------------------------------------
+            // We treat object-derived keywords as "truth" and only allow scene/ocr to fill gaps.
+            val objectCandidates: List<Candidate> = runCatching {
                 val objects = objectDetector.process(image).await()
 
-                val totalArea = (bmp.width * bmp.height).toFloat().coerceAtLeast(1f)
-
-                // Direct per-object classification labels (when ML Kit provides them)
-                // We boost larger objects a bit because users usually care about the main subject.
-                val direct = objects
-                    .flatMap { obj ->
-                        val areaRatio = (obj.boundingBox.width() * obj.boundingBox.height()).toFloat() / totalArea
-                        val sizeBoost = (0.85f + 0.35f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
-                        obj.labels.map { it.text.trim() to (it.confidence * sizeBoost) }
+                val direct = objects.flatMap { obj ->
+                    val areaRatio = (obj.boundingBox.width() * obj.boundingBox.height()).toFloat() / totalArea
+                    val sizeBoost = (0.95f + 0.55f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
+                    obj.labels.map { lbl ->
+                        Candidate(
+                            token = lbl.text.trim(),
+                            score = (lbl.confidence * sizeBoost * 1.25f).coerceAtMost(1f),
+                            source = Source.OBJECT_DIRECT
+                        )
                     }
-                    .filter { it.first.isNotBlank() }
+                }
 
-                // Crop each detected object and run labeling again.
-                // This often turns "scene" labels into concrete nouns.
                 val cropped = objects.flatMap { obj ->
                     val crop = safeCrop(bmp, obj.boundingBox) ?: return@flatMap emptyList()
                     val areaRatio = (obj.boundingBox.width() * obj.boundingBox.height()).toFloat() / totalArea
-                    val sizeBoost = (0.90f + 0.45f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
+                    val sizeBoost = (0.95f + 0.60f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
                     val cropImage = InputImage.fromBitmap(crop, 0)
                     runCatching {
                         labeler.process(cropImage).await()
                             .sortedByDescending { it.confidence }
+                            // Crop-labels can be noisy; require higher confidence.
+                            .filter { it.confidence >= 0.65f }
                             .take(3)
-                            // Slightly downweight crop-labels, but boost by object size.
-                            .map { it.text.trim() to (it.confidence * 0.88f * sizeBoost).coerceAtMost(1f) }
+                            .map { lbl ->
+                                val raw = lbl.text.trim()
+                                val penalty = if (GENERIC_LABELS.contains(raw.lowercase(Locale.getDefault()))) 0.72f else 1.0f
+                                Candidate(
+                                    token = raw,
+                                    score = (lbl.confidence * sizeBoost * 0.95f * penalty).coerceAtMost(1f),
+                                    source = Source.OBJECT_CROP
+                                )
+                            }
                     }.getOrElse { emptyList() }
                 }
 
+                // Keep only solid object candidates.
                 (direct + cropped)
-                    .filter { it.first.isNotBlank() }
-                    .sortedByDescending { it.second }
-                    .filter { it.second >= (minConfidence - 0.20f).coerceAtLeast(0.25f) }
+                    .filter { it.token.isNotBlank() }
+                    .filter { it.score >= 0.55f }
             }.getOrElse { emptyList() }
 
-            // 3) Text hints (signs, labels, packaging). We only keep short, clean tokens.
-            val textLabels = runCatching {
+            val hasObjects = objectCandidates.isNotEmpty()
+
+            // --- B) SCENE (only if very confident, or if we didn't find objects) --------------
+            val sceneCandidates: List<Candidate> = runCatching {
+                labeler.process(image).await()
+                    .sortedByDescending { it.confidence }
+                    .filter { lbl ->
+                        val t = lbl.text.trim().lowercase(Locale.getDefault())
+                        val c = lbl.confidence
+                        // If objects exist, allow only very high-confidence scene/context labels.
+                        val threshold = if (hasObjects) 0.78f else minConfidence
+                        c >= threshold && !GENERIC_LABELS.contains(t)
+                    }
+                    .take(if (hasObjects) 2 else 5)
+                    .map { lbl ->
+                        Candidate(
+                            token = lbl.text.trim(),
+                            score = (lbl.confidence * 0.85f).coerceAtMost(1f),
+                            source = Source.SCENE
+                        )
+                    }
+            }.getOrElse { emptyList() }
+
+            // --- C) OCR (only used as a precision booster; heavily filtered) -----------------
+            val ocrCandidates: List<Candidate> = runCatching {
                 val raw = textRecognizer.process(image).await().text
                     .lowercase(Locale.getDefault())
 
-                // Tokenize with some guardrails so we don't pollute keywords with noise.
                 val tokens = raw
                     .replace(Regex("[^a-z0-9\\n ]"), " ")
                     .split(Regex("\\s+"))
                     .map { it.trim() }
-                    .filter { it.length in 3..20 }
-                    .filter { it.any { ch -> ch.isLetter() } } // avoid pure numbers
+                    .filter { it.length in 4..18 }
+                    .filter { it.any { ch -> ch.isLetter() } }
                     .filterNot { STOP_WORDS.contains(it) }
+                    .filterNot { GENERIC_LABELS.contains(it) }
 
-                // Add a few useful bigrams (e.g., "coca cola", "macbook pro")
+                // Useful bigrams, but require at least one "strong" token.
                 val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
                     .map { (a, b) -> "$a $b" }
-                    .filter { it.length in 6..28 }
+                    .filter { it.length in 7..26 }
+                    .filter { bg ->
+                        val parts = bg.split(' ')
+                        parts.any { it.length >= 6 }
+                    }
 
-                (tokens + bigrams)
+                val keep = (bigrams + tokens)
                     .distinct()
-                    .take(16)
-                    // Treat as medium confidence; we'll still rank with others.
-                    .map { it to 0.62f }
+                    // If objects exist, OCR is usually secondary (avoid noisy brands/text).
+                    .take(if (hasObjects) 2 else 4)
+
+                keep.map {
+                    Candidate(
+                        token = it,
+                        score = if (hasObjects) 0.62f else 0.68f,
+                        source = Source.OCR
+                    )
+                }
             }.getOrElse { emptyList() }
 
-            // Merge + rank: object labels get a small boost because users typically expect them.
-            val merged = (
-                sceneLabels.map { it.first.lowercase(Locale.getDefault()) to it.second } +
-                    objectLabels.map { it.first.lowercase(Locale.getDefault()) to (it.second + 0.12f).coerceAtMost(1f) } +
-                    // Text keywords get a small boost because they are often very specific.
-                    textLabels.map { it.first.lowercase(Locale.getDefault()) to (it.second + 0.08f).coerceAtMost(1f) }
-                )
+            val all = (objectCandidates + sceneCandidates + ocrCandidates)
 
-            merged
-                .flatMap { (t, c) -> expandTokens(normalizeToken(t)).map { it to c } }
-                .filter { (t, _) -> t.isNotBlank() && t.length >= 2 }
-                .filterNot { (t, _) -> STOP_WORDS.contains(t) }
-                .groupBy { it.first }
-                .mapValues { (_, xs) -> xs.maxOf { it.second } }
-                .toList()
-                .sortedByDescending { it.second }
-                .map { it.first }
-                .take(max)
+            // Expand + dedupe while keeping the BEST score per token.
+            val scored = all
+                .flatMap { c ->
+                    expandTokens(normalizeToken(c.token)).map { t ->
+                        Candidate(token = t, score = c.score, source = c.source)
+                    }
+                }
+                .filter { it.token.isNotBlank() && it.token.length >= 2 }
+                .filterNot { STOP_WORDS.contains(it.token) }
+                .filterNot { GENERIC_LABELS.contains(it.token) }
+                .groupBy { it.token }
+                .map { (t, xs) ->
+                    // Prefer object sources when scores are similar.
+                    val best = xs.maxByOrNull { it.score + sourceBoost(it.source) }!!
+                    best.copy(token = t)
+                }
+                .sortedByDescending { it.score + sourceBoost(it.source) }
+
+            // Ensure object-centric results dominate when we have them.
+            val out = mutableListOf<String>()
+            val objectFirst = scored.filter { it.source == Source.OBJECT_DIRECT || it.source == Source.OBJECT_CROP }
+            val others = scored.filterNot { it.source == Source.OBJECT_DIRECT || it.source == Source.OBJECT_CROP }
+
+            if (objectFirst.isNotEmpty()) {
+                out += objectFirst.map { it.token }.take((max * 0.75f).toInt().coerceAtLeast(4))
+            }
+            out += (others.map { it.token }).filterNot { out.contains(it) }
+
+            out.distinct().take(max)
         }.getOrElse { t ->
             Log.w("AiKeywordHelper", "ML Kit labeling failed for path=$photoPath", t)
             emptyList()
         }
+    }
+
+    private fun sourceBoost(s: Source): Float = when (s) {
+        Source.OBJECT_DIRECT -> 0.12f
+        Source.OBJECT_CROP -> 0.08f
+        Source.SCENE -> 0.02f
+        Source.OCR -> 0.04f
     }
 
     private fun normalizeToken(raw: String): String {
@@ -198,6 +262,18 @@ class AiKeywordHelper(private val context: Context) {
         private val STOP_WORDS = setOf(
             "a", "an", "the", "and", "or", "of", "to", "in", "on", "with",
             "object", "thing", "items", "item", "photo", "picture", "image"
+        )
+
+        // Labels that are common but usually not helpful as "object" keywords.
+        // We filter these aggressively to improve precision.
+        private val GENERIC_LABELS = setOf(
+            "indoor", "indoors", "outdoor", "outdoors", "room", "floor", "ceiling",
+            "wall", "furniture", "product", "goods", "material", "brand",
+            "photography", "photo", "image", "picture",
+            "art", "design", "pattern", "text", "font",
+            "food", "meal", "cuisine", "dish",
+            "plant", "flower", "tree", "nature",
+            "person", "people", "human", "man", "woman", "child"
         )
     }
 
