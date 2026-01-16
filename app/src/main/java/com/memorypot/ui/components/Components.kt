@@ -59,7 +59,6 @@ import android.os.Build
 import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
-import androidx.compose.ui.text.LocalTextStyle
 import androidx.compose.foundation.layout.defaultMinSize
 
 /**
@@ -633,7 +632,7 @@ private fun IOSSingleLineField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 2.dp) // critical: prevents first-glyph clipping on some OEMs
@@ -669,7 +668,7 @@ private fun IOSMultilineField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = false,
-                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 2.dp) // critical: prevents first-glyph clipping
