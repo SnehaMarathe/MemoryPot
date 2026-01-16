@@ -13,6 +13,8 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.rememberScrollState
+import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -22,6 +24,7 @@ import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
+import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -285,7 +288,10 @@ private fun ReflectSheetContent(
             when (pages[index]) {
                 ReflectPage.CLUES -> {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
@@ -346,7 +352,10 @@ private fun ReflectSheetContent(
 
                 ReflectPage.NOTE -> {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
@@ -366,7 +375,7 @@ private fun ReflectSheetContent(
                             placeholder = { Text("Anything you’d like to remember?") },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .weight(1f),
+                                .heightIn(min = 160.dp, max = 240.dp),
                             minLines = 5
                         )
 
@@ -383,7 +392,10 @@ private fun ReflectSheetContent(
 
                 ReflectPage.PLACE -> {
                     Column(
-                        modifier = Modifier.fillMaxSize(),
+                        modifier = Modifier
+                            .fillMaxSize()
+                            .verticalScroll(rememberScrollState())
+                            .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
                         Text(
@@ -415,7 +427,7 @@ private fun ReflectSheetContent(
                                 Text("Allow location")
                             }
                         }
-                        Spacer(Modifier.weight(1f))
+                        Spacer(Modifier.height(12.dp))
                     }
                 }
             }
