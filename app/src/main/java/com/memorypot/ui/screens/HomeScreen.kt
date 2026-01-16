@@ -54,9 +54,8 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
+import com.memorypot.ui.components.Pill
 import com.memorypot.ui.components.IOSSearchField
-import com.memorypot.ui.components.LargeTitleHeader
-import com.memorypot.ui.components.GlassCard
 import com.memorypot.ui.components.SuggestionCard
 import com.memorypot.viewmodel.HomeFilter
 import com.memorypot.viewmodel.HomeViewModel
@@ -121,22 +120,44 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            val subtitle = when (filter) {
-                HomeFilter.ACTIVE -> "Active"
-                HomeFilter.ARCHIVED -> "Archived"
-            }
-            LargeTitleHeader(
-                title = "Memories",
-                subtitle = subtitle,
-                trailing = {
-                    IconButton(onClick = onSettings) {
-                        Icon(Icons.Default.Settings, contentDescription = "Settings")
+            // iOS-like large title header + trailing settings action
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Memories",
+                        style = MaterialTheme.typography.headlineLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val subtitle = when (filter) {
+                        HomeFilter.ACTIVE -> "Active"
+                        HomeFilter.ARCHIVED -> "Archived"
                     }
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
                 }
-            )
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                }
+            }
 
-            // Search + Filter (premium card)
-            GlassCard(modifier = Modifier.fillMaxWidth()) {
+            // Search + Filter container
+            Surface(
+                tonalElevation = 2.dp,
+                shadowElevation = 0.dp,
+                shape = RoundedCornerShape(24.dp),
+                color = MaterialTheme.colorScheme.surface,
+                modifier = Modifier.fillMaxWidth()
+            ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
                     IOSSearchField(
                         value = query,

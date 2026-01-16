@@ -70,9 +70,7 @@ private val AppShapes = Shapes(
 
 @Composable
 fun MemoryPotTheme(
-    // Dynamic colors can make the UI feel inconsistent across devices.
-    // Defaulting to false gives a more "product" feel (Apple-like consistency).
-    useDynamicColor: Boolean = false,
+    useDynamicColor: Boolean = true,
     content: @Composable () -> Unit
 ) {
     val dark = isSystemInDarkTheme()

@@ -10,7 +10,6 @@ import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.heightIn
-import androidx.compose.foundation.layout.width
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
@@ -48,8 +47,9 @@ import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.AppTopBar
 import com.memorypot.ui.components.IOSBottomActionBar
-import com.memorypot.ui.components.SectionCard
-import com.memorypot.ui.components.InlineRowKeyValue
+import com.memorypot.ui.components.IOSGroupedSurface
+import com.memorypot.ui.components.IOSRow
+import com.memorypot.ui.components.IOSSectionHeader
 import com.memorypot.ui.components.KeywordChipsDisplay
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
@@ -150,96 +150,96 @@ fun MemoryDetailsScreen(
 
                 if (m.note.isNotBlank()) {
                     item {
-                        SectionCard(title = "Story") {
-                            Text(
-                                "\u201C${m.note.trim()}\u201D",
-                                style = MaterialTheme.typography.titleMedium
-                            )
-                            Text(
-                                "Your note",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
+                        IOSSectionHeader("📝 STORY")
+                        IOSGroupedSurface {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                Text(
+                                    "\u201C${m.note.trim()}\u201D",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "Your note",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
 
                 item {
-                    SectionCard(title = "Context") {
-                        InlineRowKeyValue("Place", m.placeText.ifBlank { "Unknown place" })
-                        InlineRowKeyValue(
-                            "Saved",
-                            java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt))
+                    IOSSectionHeader("CONTEXT")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Place",
+                            subtitle = m.placeText.ifBlank { "Unknown place" },
+                            showDivider = true
+                        )
+                        IOSRow(
+                            title = "Saved",
+                            subtitle = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)),
+                            showDivider = false
                         )
                     }
                 }
 
                 if (m.keywords.isNotBlank()) {
                     item {
-                        SectionCard(title = "Memory clues") {
-                            KeywordChipsDisplay(m.keywords, title = "")
-                            Text(
-                                "These help you rediscover this moment later.",
-                                style = MaterialTheme.typography.bodySmall,
-                                color = MaterialTheme.colorScheme.onSurfaceVariant
-                            )
-                        }
-                    }
-                }
-
-                item {
-                    SectionCard(
-                        title = "More",
-                    ) {
-                        Row(
-                            modifier = Modifier.fillMaxWidth(),
-                            verticalAlignment = Alignment.CenterVertically,
-                            horizontalArrangement = Arrangement.SpaceBetween
-                        ) {
-                            Column(modifier = Modifier.weight(1f)) {
+                        IOSSectionHeader("✨ MEMORY CLUES")
+                        IOSGroupedSurface {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                KeywordChipsDisplay(m.keywords, title = "")
+                                Spacer(Modifier.height(6.dp))
                                 Text(
-                                    if (showMore) "Details visible" else "Details hidden",
-                                    style = MaterialTheme.typography.bodyLarge
-                                )
-                                Text(
-                                    "GPS coordinates & technical info",
+                                    "These help you rediscover this moment later.",
                                     style = MaterialTheme.typography.bodySmall,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant
                                 )
                             }
-                            TextButton(onClick = { showMore = !showMore }) {
-                                Text(if (showMore) "Hide" else "Show")
-                            }
                         }
+                    }
+                }
 
+                item {
+                    IOSSectionHeader("MORE")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = if (showMore) "Hide details" else "Show details",
+                            subtitle = "GPS coordinates & technical info",
+                            trailing = {
+                                TextButton(onClick = { showMore = !showMore }) {
+                                    Text(if (showMore) "Hide" else "Show")
+                                }
+                            },
+                            showDivider = false
+                        )
                         androidx.compose.animation.AnimatedVisibility(visible = showMore) {
-                            Column(verticalArrangement = Arrangement.spacedBy(6.dp)) {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                                 val locText = if (m.latitude != null && m.longitude != null)
                                     "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
                                 else "Not saved"
-                                InlineRowKeyValue("GPS", locText)
-                                InlineRowKeyValue("ID", m.id)
+                                Text("GPS: $locText", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "ID: ${m.id}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }
                 }
 
                 item {
-                    SectionCard(title = "Danger zone") {
-                        Text(
-                            "Delete memory",
-                            style = MaterialTheme.typography.bodyLarge
+                    IOSSectionHeader("DANGER ZONE")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Delete memory",
+                            subtitle = "Removes the memory and deletes its photo from this device.",
+                            trailing = { TextButton(onClick = { confirmDelete = true }) { Text("Delete") } },
+                            showDivider = false
                         )
-                        Text(
-                            "Removes the memory and deletes its photo from this device.",
-                            style = MaterialTheme.typography.bodySmall,
-                            color = MaterialTheme.colorScheme.onSurfaceVariant
-                        )
-                        OutlinedButton(onClick = { confirmDelete = true }) {
-                            Icon(Icons.Default.Delete, contentDescription = "Delete")
-                            Spacer(Modifier.width(8.dp))
-                            Text("Delete")
-                        }
                     }
                 }
             }
