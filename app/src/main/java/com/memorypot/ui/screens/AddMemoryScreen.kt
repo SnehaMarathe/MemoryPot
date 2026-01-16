@@ -74,6 +74,9 @@ import coil.compose.AsyncImage
 import com.memorypot.data.repo.PhotoStore
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.IOSBottomActionBar
+import com.memorypot.ui.components.IOSGroupedSurface
+import com.memorypot.ui.components.IOSSectionHeader
 import com.memorypot.ui.components.KeywordEditor
 import com.memorypot.viewmodel.AddMemoryViewModel
 import com.memorypot.viewmodel.AddVmFactory
@@ -112,6 +115,34 @@ fun AddMemoryScreen(
                 title = if (step == AddStep.CAMERA) "Add Memory" else "Details",
                 onBack = onCancel
             )
+        },
+        bottomBar = {
+            val photoPath = capturedPath
+            if (step == AddStep.EDIT && photoPath != null) {
+                IOSBottomActionBar {
+                    OutlinedButton(
+                        onClick = {
+                            runCatching { File(photoPath).delete() }
+                            onCancel()
+                        },
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Text("Cancel")
+                    }
+
+                    Button(
+                        onClick = { vm.save(photoPath, onDone) },
+                        enabled = !state.isSaving,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (state.isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text("Save")
+                    }
+                }
+            }
         }
     ) { padding ->
         Column(
@@ -171,33 +202,34 @@ fun AddMemoryScreen(
                             }
 
                             item {
-                                OutlinedTextField(
-                                    value = state.label,
-                                    onValueChange = vm::updateLabel,
-                                    label = { Text("Label") },
-                                    supportingText = { Text("Give it a quick name so you can search later.") },
-                                    modifier = Modifier.fillMaxWidth(),
-                                    singleLine = true
-                                )
-                            }
-
-                            item {
-                                OutlinedTextField(
-                                    value = state.note,
-                                    onValueChange = vm::updateNote,
-                                    label = { Text("Note") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            item {
-                                OutlinedTextField(
-                                    value = state.placeText,
-                                    onValueChange = vm::updatePlace,
-                                    label = { Text("Place") },
-                                    supportingText = { Text("Auto-filled if location is available.") },
-                                    modifier = Modifier.fillMaxWidth()
-                                )
+                                IOSSectionHeader("DETAILS")
+                                IOSGroupedSurface {
+                                    Column(Modifier.padding(horizontal = 12.dp)) {
+                                        OutlinedTextField(
+                                            value = state.label,
+                                            onValueChange = vm::updateLabel,
+                                            label = { Text("Label") },
+                                            supportingText = { Text("Give it a quick name so you can search later.") },
+                                            modifier = Modifier.fillMaxWidth(),
+                                            singleLine = true
+                                        )
+                                        Spacer(Modifier.height(10.dp))
+                                        OutlinedTextField(
+                                            value = state.note,
+                                            onValueChange = vm::updateNote,
+                                            label = { Text("Note") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                        Spacer(Modifier.height(10.dp))
+                                        OutlinedTextField(
+                                            value = state.placeText,
+                                            onValueChange = vm::updatePlace,
+                                            label = { Text("Place") },
+                                            supportingText = { Text("Auto-filled if location is available.") },
+                                            modifier = Modifier.fillMaxWidth()
+                                        )
+                                    }
+                                }
                             }
 
                             if (saveLocationEnabled && !locationHelper.hasLocationPermission()) {
@@ -253,35 +285,6 @@ fun AddMemoryScreen(
                                 item {
                                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
                                 }
-                            }
-                        }
-
-                        // Fixed bottom actions
-                        Row(
-                            Modifier.fillMaxWidth(),
-                            horizontalArrangement = Arrangement.spacedBy(10.dp),
-                            verticalAlignment = Alignment.CenterVertically
-                        ) {
-                            OutlinedButton(
-                                onClick = {
-                                    runCatching { File(photoPath).delete() }
-                                    onCancel()
-                                },
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                Text("Cancel")
-                            }
-
-                            Button(
-                                onClick = { vm.save(photoPath, onDone) },
-                                enabled = !state.isSaving,
-                                modifier = Modifier.weight(1f)
-                            ) {
-                                if (state.isSaving) {
-                                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                                    Spacer(Modifier.size(8.dp))
-                                }
-                                Text("Save")
                             }
                         }
 

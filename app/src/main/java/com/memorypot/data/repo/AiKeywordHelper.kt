@@ -3,7 +3,9 @@ package com.memorypot.data.repo
 import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
+import android.graphics.Matrix
 import android.util.Log
+import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.label.ImageLabeler
 import com.google.mlkit.vision.label.ImageLabeling
@@ -59,7 +61,9 @@ class AiKeywordHelper(private val context: Context) {
         minConfidence: Float = 0.50f
     ): List<String> = withContext(Dispatchers.IO) {
         runCatching {
-            val bmp = decodeScaledBitmap(photoPath, maxDim = 1024)
+            // Decode an upright bitmap (honoring camera EXIF rotation). This noticeably improves
+            // ML Kit recognition quality for many devices.
+            val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280)
                 ?: error("Failed to decode image")
             val image = InputImage.fromBitmap(bmp, /* rotationDegrees = */ 0)
 
@@ -72,13 +76,43 @@ class AiKeywordHelper(private val context: Context) {
             }.getOrElse { emptyList() }
 
             // 2) Object-centric labels ("bottle", "shoe", "cat")
-            //    We slightly lower the threshold because object classification can be conservative.
+            //    ML Kit object classification can be conservative; we also do a second pass by
+            //    cropping each detected object and running image labeling on the crop.
             val objectLabels = runCatching {
-                objectDetector.process(image).await()
-                    .flatMap { obj -> obj.labels.map { it.text.trim() to it.confidence } }
+                val objects = objectDetector.process(image).await()
+
+                val totalArea = (bmp.width * bmp.height).toFloat().coerceAtLeast(1f)
+
+                // Direct per-object classification labels (when ML Kit provides them)
+                // We boost larger objects a bit because users usually care about the main subject.
+                val direct = objects
+                    .flatMap { obj ->
+                        val areaRatio = (obj.boundingBox.width() * obj.boundingBox.height()).toFloat() / totalArea
+                        val sizeBoost = (0.85f + 0.35f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
+                        obj.labels.map { it.text.trim() to (it.confidence * sizeBoost) }
+                    }
+                    .filter { it.first.isNotBlank() }
+
+                // Crop each detected object and run labeling again.
+                // This often turns "scene" labels into concrete nouns.
+                val cropped = objects.flatMap { obj ->
+                    val crop = safeCrop(bmp, obj.boundingBox) ?: return@flatMap emptyList()
+                    val areaRatio = (obj.boundingBox.width() * obj.boundingBox.height()).toFloat() / totalArea
+                    val sizeBoost = (0.90f + 0.45f * kotlin.math.sqrt(areaRatio.coerceIn(0f, 1f)))
+                    val cropImage = InputImage.fromBitmap(crop, 0)
+                    runCatching {
+                        labeler.process(cropImage).await()
+                            .sortedByDescending { it.confidence }
+                            .take(3)
+                            // Slightly downweight crop-labels, but boost by object size.
+                            .map { it.text.trim() to (it.confidence * 0.88f * sizeBoost).coerceAtMost(1f) }
+                    }.getOrElse { emptyList() }
+                }
+
+                (direct + cropped)
                     .filter { it.first.isNotBlank() }
                     .sortedByDescending { it.second }
-                    .filter { it.second >= (minConfidence - 0.15f).coerceAtLeast(0.25f) }
+                    .filter { it.second >= (minConfidence - 0.20f).coerceAtLeast(0.25f) }
             }.getOrElse { emptyList() }
 
             // Merge + rank: object labels get a small boost because users typically expect them.
@@ -129,7 +163,7 @@ class AiKeywordHelper(private val context: Context) {
         )
     }
 
-    private fun decodeScaledBitmap(path: String, maxDim: Int): Bitmap? {
+    private fun decodeScaledBitmapUpright(path: String, maxDim: Int): Bitmap? {
         val file = File(path)
         if (!file.exists()) return null
 
@@ -146,11 +180,42 @@ class AiKeywordHelper(private val context: Context) {
             sample *= 2
         }
 
-        return BitmapFactory.Options().run {
+        val decoded = BitmapFactory.Options().run {
             inSampleSize = sample
             inPreferredConfig = Bitmap.Config.ARGB_8888
             BitmapFactory.decodeFile(path, this)
         }
+
+        val rotation = runCatching { exifRotationDegrees(path) }.getOrElse { 0 }
+        if (rotation == 0) return decoded
+        return rotateBitmap(decoded ?: return null, rotation)
+    }
+
+    private fun exifRotationDegrees(path: String): Int {
+        val exif = ExifInterface(path)
+        return when (exif.getAttributeInt(ExifInterface.TAG_ORIENTATION, ExifInterface.ORIENTATION_NORMAL)) {
+            ExifInterface.ORIENTATION_ROTATE_90 -> 90
+            ExifInterface.ORIENTATION_ROTATE_180 -> 180
+            ExifInterface.ORIENTATION_ROTATE_270 -> 270
+            else -> 0
+        }
+    }
+
+    private fun rotateBitmap(src: Bitmap, degrees: Int): Bitmap {
+        val m = Matrix().apply { postRotate(degrees.toFloat()) }
+        return Bitmap.createBitmap(src, 0, 0, src.width, src.height, m, true)
+            .also { if (it != src) src.recycle() }
+    }
+
+    private fun safeCrop(src: Bitmap, box: android.graphics.Rect): Bitmap? {
+        val left = box.left.coerceAtLeast(0)
+        val top = box.top.coerceAtLeast(0)
+        val right = box.right.coerceAtMost(src.width)
+        val bottom = box.bottom.coerceAtMost(src.height)
+        val w = right - left
+        val h = bottom - top
+        if (w <= 20 || h <= 20) return null
+        return runCatching { Bitmap.createBitmap(src, left, top, w, h) }.getOrNull()
     }
 
     /**

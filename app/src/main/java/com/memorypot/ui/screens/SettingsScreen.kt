@@ -41,6 +41,9 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.IOSGroupedSurface
+import com.memorypot.ui.components.IOSRow
+import com.memorypot.ui.components.IOSSectionHeader
 import com.memorypot.viewmodel.SettingsViewModel
 import com.memorypot.viewmodel.SettingsVmFactory
 import kotlinx.coroutines.launch
@@ -90,46 +93,52 @@ fun SettingsScreen(onBack: () -> Unit) {
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Save location", style = MaterialTheme.typography.titleMedium)
-                            Text("Attach location when saving (permission-dependent).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = state.saveLocation, onCheckedChange = vm::setSaveLocation)
-                    }
-                    Row(Modifier.fillMaxWidth(), verticalAlignment = Alignment.CenterVertically) {
-                        Column(Modifier.weight(1f)) {
-                            Text("Prompt me to clear when nearby", style = MaterialTheme.typography.titleMedium)
-                            Text("Checks only when Home opens.", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                        }
-                        Switch(checked = state.nearbyPrompt, onCheckedChange = vm::setNearbyPrompt)
-                    }
-                        }
-                    }
-                }
-
-                item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Export / Backup", style = MaterialTheme.typography.titleMedium)
-                            Text("v0 exports JSON metadata only (photos not embedded).", color = MaterialTheme.colorScheme.onSurfaceVariant)
-                            Button(onClick = { createDoc.launch("memory-pot-export.json") }) {
-                                Text("Export JSON")
-                            }
-                        }
+                    IOSSectionHeader("PREFERENCES")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Save location",
+                            subtitle = "Attach GPS + place when saving (permission-dependent).",
+                            trailing = {
+                                Switch(checked = state.saveLocation, onCheckedChange = vm::setSaveLocation)
+                            },
+                            showDivider = true
+                        )
+                        IOSRow(
+                            title = "Nearby prompt",
+                            subtitle = "When you open Home, suggest clearing items near you.",
+                            trailing = {
+                                Switch(checked = state.nearbyPrompt, onCheckedChange = vm::setNearbyPrompt)
+                            },
+                            showDivider = false
+                        )
                     }
                 }
 
                 item {
-                    Card(Modifier.fillMaxWidth()) {
-                        Column(Modifier.padding(16.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                            Text("Danger zone", style = MaterialTheme.typography.titleMedium)
-                            Button(onClick = { confirmClear = true }) {
-                                Text("Clear all data")
-                            }
-                        }
+                    IOSSectionHeader("BACKUP")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Export JSON",
+                            subtitle = "Exports metadata only (photos not embedded).",
+                            trailing = {
+                                TextButton(onClick = { createDoc.launch("memory-pot-export.json") }) { Text("Export") }
+                            },
+                            showDivider = false
+                        )
+                    }
+                }
+
+                item {
+                    IOSSectionHeader("DANGER ZONE")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Clear all data",
+                            subtitle = "Deletes all memories and photos from this device.",
+                            trailing = {
+                                TextButton(onClick = { confirmClear = true }) { Text("Clear") }
+                            },
+                            showDivider = false
+                        )
                     }
                 }
 
