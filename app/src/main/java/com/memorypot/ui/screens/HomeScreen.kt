@@ -243,7 +243,7 @@ fun HomeScreen(
 
 @Composable
 private fun MemoryMoments(
-    memories: List<com.memorypot.data.model.Memory>,
+    memories: List<com.memorypot.data.db.MemoryListItem>,
     onOpen: (String) -> Unit,
     modifier: Modifier = Modifier
 ) {
