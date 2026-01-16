@@ -57,6 +57,10 @@ import com.memorypot.data.repo.Confidence
 import com.memorypot.data.repo.LocationSuggestion
 import android.os.Build
 import androidx.compose.foundation.layout.RowScope
+import androidx.compose.foundation.border
+import androidx.compose.foundation.text.BasicTextField
+import androidx.compose.ui.text.LocalTextStyle
+import androidx.compose.foundation.layout.defaultMinSize
 
 /**
  * A “Play Store ready” top bar:
@@ -529,12 +533,17 @@ fun KeywordEditor(
                     list.forEach { kw ->
                         // Some OEM/font combos can visually clip the first glyph inside Material3 chips.
                         // To guarantee perfect rendering, we use our own simple "pill" chip.
-                        Surface(
-                            shape = RoundedCornerShape(999.dp),
-                            color = MaterialTheme.colorScheme.surfaceVariant
+                        Box(
+                            modifier = Modifier
+                                .background(
+                                    color = MaterialTheme.colorScheme.surfaceVariant,
+                                    shape = RoundedCornerShape(999.dp)
+                                )
+                                // Important: background with shape does NOT clip children like Surface can.
+                                // This avoids OEM/font glyph left-bearing clipping (missing first letter).
+                                .padding(start = 14.dp, end = 10.dp, top = 8.dp, bottom = 8.dp)
                         ) {
                             Row(
-                                modifier = Modifier.padding(start = 12.dp, end = 8.dp, top = 8.dp, bottom = 8.dp),
                                 verticalAlignment = Alignment.CenterVertically,
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
@@ -542,7 +551,8 @@ fun KeywordEditor(
                                     text = kw,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
-                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                    modifier = Modifier.padding(start = 2.dp) // extra safety
                                 )
                                 Icon(
                                     imageVector = Icons.Default.Close,
@@ -567,27 +577,102 @@ fun KeywordEditor(
                 horizontalArrangement = Arrangement.spacedBy(10.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
-                OutlinedTextField(
+                IOSSingleLineField(
                     value = prompt,
                     onValueChange = onPromptChange,
-                    modifier = Modifier.weight(1f),
-                    singleLine = true,
-                    label = { Text("Add more keywords") },
-                    placeholder = { Text("e.g., passport, hotel, keys") }
+                    label = "Add more keywords",
+                    placeholder = "e.g., passport, hotel, keys",
+                    modifier = Modifier.weight(1f)
                 )
                 OutlinedButton(onClick = onApplyPrompt, enabled = prompt.trim().isNotBlank()) {
                     Text("Add")
                 }
             }
 
+            
             // Advanced (paste/edit) — keeps power users happy
-            OutlinedTextField(
+            IOSMultilineField(
                 value = keywords,
                 onValueChange = onKeywordsChange,
-                modifier = Modifier.fillMaxWidth(),
-                label = { Text("Edit as text") },
-                placeholder = { Text("Comma-separated keywords") },
-                minLines = 2
+                label = "Edit as text",
+                placeholder = "Comma-separated keywords",
+                minLines = 2,
+                modifier = Modifier.fillMaxWidth()
+            )
+        }
+    }
+}
+
+
+// -------------------------
+// iOS-like text fields (avoid OEM glyph clipping)
+// -------------------------
+
+@Composable
+private fun IOSSingleLineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+        ) {
+            if (value.isBlank()) {
+                Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.foundation.text.BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = true,
+                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping on some OEMs
+            )
+        }
+    }
+}
+
+@Composable
+private fun IOSMultilineField(
+    value: String,
+    onValueChange: (String) -> Unit,
+    label: String,
+    placeholder: String,
+    minLines: Int,
+    modifier: Modifier = Modifier
+) {
+    Column(modifier = modifier) {
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Spacer(Modifier.height(6.dp))
+        Box(
+            modifier = Modifier
+                .fillMaxWidth()
+                .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
+                .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
+                .padding(horizontal = 14.dp, vertical = 12.dp)
+                .defaultMinSize(minHeight = (minLines * 22).dp)
+        ) {
+            if (value.isBlank()) {
+                Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
+            }
+            androidx.compose.foundation.text.BasicTextField(
+                value = value,
+                onValueChange = onValueChange,
+                singleLine = false,
+                textStyle = LocalTextStyle.current.copy(color = MaterialTheme.colorScheme.onSurface),
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping
             )
         }
     }
