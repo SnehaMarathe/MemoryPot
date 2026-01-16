@@ -32,6 +32,20 @@ class AddMemoryViewModel(
     fun updateKeywords(v: String) { _state.value = _state.value.copy(keywords = v) }
     fun updateKeywordPrompt(v: String) { _state.value = _state.value.copy(keywordPrompt = v) }
 
+    /**
+     * Called when the user retakes the photo (or starts a new capture).
+     * We clear AI-derived fields so the next capture generates fresh results.
+     */
+    fun resetForNewCapture() {
+        val s = _state.value
+        _state.value = s.copy(
+            keywords = "",
+            keywordPrompt = "",
+            isGeneratingKeywords = false,
+            error = null
+        )
+    }
+
     fun generateKeywords(photoPath: String) {
         // only auto-generate if user hasn't typed anything yet
         val s = _state.value

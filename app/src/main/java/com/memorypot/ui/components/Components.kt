@@ -526,16 +526,30 @@ fun KeywordEditor(
                     verticalArrangement = Arrangement.spacedBy(8.dp)
                 ) {
                     list.forEach { kw ->
+                        // NOTE: avoid using IconButton inside chips.
+                        // IconButton has a large minimum touch target which can shrink/clip the
+                        // label area on small screens (making the first letter appear “missing”).
+                        // We use a lightweight clickable icon instead.
                         InputChip(
                             selected = false,
                             onClick = {},
+                            modifier = Modifier.padding(start = 2.dp),
                             label = { Text(kw, maxLines = 1, overflow = TextOverflow.Ellipsis) },
                             trailingIcon = {
-                                IconButton(onClick = {
-                                    val updated = list.filterNot { it.equals(kw, ignoreCase = true) }
-                                    onKeywordsChange(toKeywordString(updated))
-                                }) {
-                                    Icon(Icons.Default.Close, contentDescription = "Remove")
+                                Box(
+                                    modifier = Modifier
+                                        .padding(end = 6.dp)
+                                        .clickable {
+                                            val updated = list.filterNot { it.equals(kw, ignoreCase = true) }
+                                            onKeywordsChange(toKeywordString(updated))
+                                        },
+                                    contentAlignment = Alignment.Center
+                                ) {
+                                    Icon(
+                                        Icons.Default.Close,
+                                        contentDescription = "Remove",
+                                        modifier = Modifier.padding(2.dp)
+                                    )
                                 }
                             },
                             colors = InputChipDefaults.inputChipColors(

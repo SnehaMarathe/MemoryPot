@@ -128,6 +128,7 @@ fun AddMemoryScreen(
                         // If already captured, go back to camera (retake) rather than exiting.
                         capturedPath = null
                         showReflectSheet = false
+                        vm.resetForNewCapture()
                     }
                 }) {
                     Icon(Icons.Default.ArrowBack, contentDescription = "Back")
@@ -154,6 +155,8 @@ fun AddMemoryScreen(
                 CameraCapture(
                     onBack = onCancel,
                     onCaptured = { path ->
+                        // New capture: ensure we don't carry over the previous photo's AI clues.
+                        vm.resetForNewCapture()
                         capturedPath = path
                         showReflectSheet = true
                     },
@@ -179,6 +182,7 @@ fun AddMemoryScreen(
                             // iOS-like: dismissing the sheet returns you to camera (retake)
                             capturedPath = null
                             showReflectSheet = false
+                            vm.resetForNewCapture()
                         },
                         sheetState = sheetState,
                         dragHandle = null,
@@ -206,6 +210,7 @@ fun AddMemoryScreen(
                             onRetake = {
                                 capturedPath = null
                                 showReflectSheet = false
+                                vm.resetForNewCapture()
                             },
                             onDoneClick = {
                                 vm.save(photoPath, onDone)
