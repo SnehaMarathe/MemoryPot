@@ -67,6 +67,7 @@ fun MemoryDetailsScreen(
     val state by vm.state.collectAsState()
 
     var confirmDelete by remember { mutableStateOf(false) }
+    var showMore by remember { mutableStateOf(false) }
 
     LaunchedEffect(id) { vm.load(id) }
 
@@ -149,15 +150,26 @@ fun MemoryDetailsScreen(
 
                 if (m.note.isNotBlank()) {
                     item {
-                        IOSSectionHeader("NOTE")
+                        IOSSectionHeader("📝 STORY")
                         IOSGroupedSurface {
-                            IOSRow(title = m.note, subtitle = null, showDivider = false)
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 14.dp)) {
+                                Text(
+                                    "\u201C${m.note.trim()}\u201D",
+                                    style = MaterialTheme.typography.titleMedium
+                                )
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "Your note",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
                         }
                     }
                 }
 
                 item {
-                    IOSSectionHeader("DETAILS")
+                    IOSSectionHeader("CONTEXT")
                     IOSGroupedSurface {
                         IOSRow(
                             title = "Place",
@@ -167,14 +179,6 @@ fun MemoryDetailsScreen(
                         IOSRow(
                             title = "Saved",
                             subtitle = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)),
-                            showDivider = true
-                        )
-                        val locText = if (m.latitude != null && m.longitude != null)
-                            "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
-                        else "Not saved"
-                        IOSRow(
-                            title = "GPS",
-                            subtitle = locText,
                             showDivider = false
                         )
                     }
@@ -182,11 +186,46 @@ fun MemoryDetailsScreen(
 
                 if (m.keywords.isNotBlank()) {
                     item {
-                        IOSSectionHeader("KEYWORDS")
+                        IOSSectionHeader("✨ MEMORY CLUES")
                         IOSGroupedSurface {
-                            // Chips in a grouped surface feels iOS-like
                             Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
                                 KeywordChipsDisplay(m.keywords, title = "")
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "These help you rediscover this moment later.",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
+                            }
+                        }
+                    }
+                }
+
+                item {
+                    IOSSectionHeader("MORE")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = if (showMore) "Hide details" else "Show details",
+                            subtitle = "GPS coordinates & technical info",
+                            trailing = {
+                                TextButton(onClick = { showMore = !showMore }) {
+                                    Text(if (showMore) "Hide" else "Show")
+                                }
+                            },
+                            showDivider = false
+                        )
+                        androidx.compose.animation.AnimatedVisibility(visible = showMore) {
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                val locText = if (m.latitude != null && m.longitude != null)
+                                    "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
+                                else "Not saved"
+                                Text("GPS: $locText", style = MaterialTheme.typography.bodyMedium)
+                                Spacer(Modifier.height(6.dp))
+                                Text(
+                                    "ID: ${m.id}",
+                                    style = MaterialTheme.typography.bodySmall,
+                                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                                )
                             }
                         }
                     }

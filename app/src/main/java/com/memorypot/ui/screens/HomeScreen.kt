@@ -1,6 +1,9 @@
 package com.memorypot.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.lazy.LazyRow
+import androidx.compose.foundation.lazy.LazyColumn
+import androidx.compose.foundation.lazy.items
 import androidx.compose.foundation.clickable
 import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
@@ -15,9 +18,7 @@ import androidx.compose.foundation.layout.height
 import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.safeDrawing
-import androidx.compose.foundation.lazy.grid.GridCells
-import androidx.compose.foundation.lazy.grid.LazyVerticalGrid
-import androidx.compose.foundation.lazy.grid.items
+// Grid is intentionally not used in the "Apple Photos" style feed.
 import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.Add
@@ -161,7 +162,7 @@ fun HomeScreen(
                     IOSSearchField(
                         value = query,
                         onValue = { vm.query.value = it },
-                        placeholder = "Search label, note, place, keywords"
+                        placeholder = "I remember…"
                     )
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -198,26 +199,204 @@ fun HomeScreen(
                     modifier = Modifier.padding(top = 12.dp)
                 )
             } else {
-                LazyVerticalGrid(
-                    columns = GridCells.Adaptive(minSize = 170.dp),
-                    verticalArrangement = Arrangement.spacedBy(12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    modifier = Modifier.fillMaxSize()
+                // Apple-ish: a calm vertical feed with a small "Memory Moments" strip on top.
+                LazyColumn(
+                    modifier = Modifier.fillMaxSize(),
+                    verticalArrangement = Arrangement.spacedBy(12.dp)
                 ) {
+                    if (query.isBlank()) {
+                        item {
+                            MemoryMoments(
+                                memories = memories,
+                                onOpen = onOpen,
+                                modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        item {
+                            Text(
+                                "All memories",
+                                style = MaterialTheme.typography.titleMedium,
+                                modifier = Modifier.padding(top = 4.dp, start = 2.dp)
+                            )
+                        }
+                    }
+
                     items(memories, key = { it.id }) { m ->
-                        MemoryCard(
+                        MemoryFeedCard(
                             label = m.label,
                             place = m.placeText,
                             photoPath = m.photoPath,
                             createdAt = m.createdAt,
                             isArchived = m.isArchived,
                             onOpen = { onOpen(m.id) },
-                            onSecondary = {
-                                if (m.isArchived) vm.unarchive(m.id) else vm.markFound(m.id)
-                            }
+                            onSecondary = { if (m.isArchived) vm.unarchive(m.id) else vm.markFound(m.id) }
                         )
                     }
-                    item { Spacer(Modifier.height(84.dp)) } // FAB breathing room
+
+                    item { Spacer(Modifier.height(96.dp)) } // FAB breathing room
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryMoments(
+    memories: List<com.memorypot.data.model.Memory>,
+    onOpen: (String) -> Unit,
+    modifier: Modifier = Modifier
+) {
+    val featured = remember(memories) {
+        if (memories.isEmpty()) emptyList() else {
+            // A tiny bit of "alive" feeling without complex rules.
+            val recent = memories.sortedByDescending { it.createdAt }.take(8)
+            // Pick 3: most recent + two more (if available).
+            listOfNotNull(
+                recent.getOrNull(0),
+                recent.getOrNull(1),
+                recent.getOrNull(2)
+            )
+        }
+    }
+
+    if (featured.isEmpty()) return
+
+    Column(modifier = modifier, verticalArrangement = Arrangement.spacedBy(10.dp)) {
+        Row(
+            modifier = Modifier.fillMaxWidth(),
+            horizontalArrangement = Arrangement.SpaceBetween,
+            verticalAlignment = Alignment.CenterVertically
+        ) {
+            Text("Memory moments", style = MaterialTheme.typography.titleMedium)
+            Text(
+                "Tap to open",
+                style = MaterialTheme.typography.bodySmall,
+                color = MaterialTheme.colorScheme.onSurfaceVariant
+            )
+        }
+
+        LazyRow(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+            items(featured, key = { it.id }) { m ->
+                FeaturedMemoryCard(
+                    label = m.label,
+                    photoPath = m.photoPath,
+                    subtitle = m.placeText.ifBlank { java.text.DateFormat.getDateInstance().format(java.util.Date(m.createdAt)) },
+                    onClick = { onOpen(m.id) }
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun FeaturedMemoryCard(
+    label: String,
+    photoPath: String,
+    subtitle: String,
+    onClick: () -> Unit
+) {
+    Card(
+        onClick = onClick,
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 1.dp),
+        modifier = Modifier
+            .size(width = 240.dp, height = 156.dp)
+    ) {
+        Box(Modifier.fillMaxSize()) {
+            AsyncImage(
+                model = java.io.File(photoPath),
+                contentDescription = null,
+                contentScale = ContentScale.Crop,
+                modifier = Modifier.fillMaxSize()
+            )
+            Column(
+                modifier = Modifier
+                    .align(Alignment.BottomStart)
+                    .padding(12.dp)
+            ) {
+                Text(
+                    label.ifBlank { "Untitled" },
+                    style = MaterialTheme.typography.titleMedium,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    subtitle,
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onPrimary,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+            }
+        }
+    }
+}
+
+@Composable
+private fun MemoryFeedCard(
+    label: String,
+    place: String,
+    photoPath: String,
+    createdAt: Long,
+    isArchived: Boolean,
+    onOpen: () -> Unit,
+    onSecondary: () -> Unit
+) {
+    Card(
+        modifier = Modifier
+            .fillMaxWidth()
+            .clip(RoundedCornerShape(22.dp))
+            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(22.dp))
+            .clickable { onOpen() },
+        shape = RoundedCornerShape(22.dp),
+        colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
+    ) {
+        Column {
+            AsyncImage(
+                model = java.io.File(photoPath),
+                contentDescription = "Photo",
+                contentScale = ContentScale.Crop,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .height(220.dp)
+            )
+
+            Column(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(14.dp),
+                verticalArrangement = Arrangement.spacedBy(8.dp)
+            ) {
+                Text(
+                    label.ifBlank { "Untitled" },
+                    style = MaterialTheme.typography.titleLarge,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Text(
+                    place.ifBlank { java.text.DateFormat.getDateInstance().format(java.util.Date(createdAt)) },
+                    style = MaterialTheme.typography.bodyMedium,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant,
+                    maxLines = 1,
+                    overflow = TextOverflow.Ellipsis
+                )
+                Row(
+                    modifier = Modifier.fillMaxWidth(),
+                    horizontalArrangement = Arrangement.SpaceBetween,
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    Text(
+                        java.text.DateFormat.getDateInstance().format(java.util.Date(createdAt)),
+                        style = MaterialTheme.typography.labelMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                    TextButton(onClick = onSecondary) {
+                        Text(if (isArchived) "Unarchive" else "Found it")
+                    }
                 }
             }
         }

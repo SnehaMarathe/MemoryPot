@@ -125,15 +125,26 @@ class AiKeywordHelper(private val context: Context) {
 
             // 3) Text hints (signs, labels, packaging). We only keep short, clean tokens.
             val textLabels = runCatching {
-                textRecognizer.process(image).await().text
+                val raw = textRecognizer.process(image).await().text
                     .lowercase(Locale.getDefault())
+
+                // Tokenize with some guardrails so we don't pollute keywords with noise.
+                val tokens = raw
                     .replace(Regex("[^a-z0-9\\n ]"), " ")
                     .split(Regex("\\s+"))
                     .map { it.trim() }
                     .filter { it.length in 3..20 }
+                    .filter { it.any { ch -> ch.isLetter() } } // avoid pure numbers
                     .filterNot { STOP_WORDS.contains(it) }
+
+                // Add a few useful bigrams (e.g., "coca cola", "macbook pro")
+                val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
+                    .map { (a, b) -> "$a $b" }
+                    .filter { it.length in 6..28 }
+
+                (tokens + bigrams)
                     .distinct()
-                    .take(12)
+                    .take(16)
                     // Treat as medium confidence; we'll still rank with others.
                     .map { it to 0.62f }
             }.getOrElse { emptyList() }

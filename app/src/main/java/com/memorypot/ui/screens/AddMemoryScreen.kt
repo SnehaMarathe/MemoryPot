@@ -31,6 +31,7 @@ import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
+import androidx.compose.foundation.background
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.windowInsetsPadding
@@ -84,7 +85,7 @@ import kotlinx.coroutines.launch
 import java.io.File
 import java.util.concurrent.Executor
 
-private enum class AddStep { CAMERA, EDIT }
+private enum class AddStep { CAMERA, REFLECT, DETAILS }
 
 @Composable
 fun AddMemoryScreen(
@@ -111,35 +112,57 @@ fun AddMemoryScreen(
 
     Scaffold(
         topBar = {
-            AppTopBar(
-                title = if (step == AddStep.CAMERA) "Add Memory" else "Details",
-                onBack = onCancel
-            )
+            val title = when (step) {
+                AddStep.CAMERA -> "Capture"
+                AddStep.REFLECT -> "Reflect"
+                AddStep.DETAILS -> "Details"
+            }
+            AppTopBar(title = title, onBack = {
+                when (step) {
+                    AddStep.CAMERA -> onCancel()
+                    AddStep.REFLECT -> {
+                        // Go back to camera, keep the captured photo so the user can retake.
+                        step = AddStep.CAMERA
+                    }
+                    AddStep.DETAILS -> {
+                        step = AddStep.REFLECT
+                    }
+                }
+            })
         },
         bottomBar = {
             val photoPath = capturedPath
-            if (step == AddStep.EDIT && photoPath != null) {
+            if (photoPath != null && step != AddStep.CAMERA) {
                 IOSBottomActionBar {
-                    OutlinedButton(
-                        onClick = {
-                            runCatching { File(photoPath).delete() }
-                            onCancel()
-                        },
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        Text("Cancel")
-                    }
-
-                    Button(
-                        onClick = { vm.save(photoPath, onDone) },
-                        enabled = !state.isSaving,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (state.isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(8.dp))
+                    when (step) {
+                        AddStep.REFLECT -> {
+                            OutlinedButton(
+                                onClick = { step = AddStep.CAMERA },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Retake") }
+                            Button(
+                                onClick = { step = AddStep.DETAILS },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Next") }
                         }
-                        Text("Save")
+                        AddStep.DETAILS -> {
+                            OutlinedButton(
+                                onClick = { step = AddStep.REFLECT },
+                                modifier = Modifier.weight(1f)
+                            ) { Text("Back") }
+                            Button(
+                                onClick = { vm.save(photoPath, onDone) },
+                                enabled = !state.isSaving,
+                                modifier = Modifier.weight(1f)
+                            ) {
+                                if (state.isSaving) {
+                                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                    Spacer(Modifier.size(8.dp))
+                                }
+                                Text("Save")
+                            }
+                        }
+                        else -> Unit
                     }
                 }
             }
@@ -157,12 +180,12 @@ fun AddMemoryScreen(
                         onBack = onCancel,
                         onCaptured = { path ->
                             capturedPath = path
-                            step = AddStep.EDIT
+                            step = AddStep.REFLECT
                         },
                         photoStore = photoStore
                     )
                 }
-                AddStep.EDIT -> {
+                AddStep.REFLECT, AddStep.DETAILS -> {
                     val photoPath = capturedPath
                     if (photoPath == null) {
                         Text("No photo captured.")
@@ -182,6 +205,8 @@ fun AddMemoryScreen(
                             .navigationBarsPadding(),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
+                        AddStepIndicator(step = step)
+
                         // Scrollable content (keeps actions always reachable on small screens)
                         LazyColumn(
                             modifier = Modifier
@@ -201,33 +226,83 @@ fun AddMemoryScreen(
                                 )
                             }
 
-                            item {
-                                IOSSectionHeader("DETAILS")
-                                IOSGroupedSurface {
-                                    Column(Modifier.padding(horizontal = 12.dp)) {
-                                        OutlinedTextField(
-                                            value = state.label,
-                                            onValueChange = vm::updateLabel,
-                                            label = { Text("Label") },
-                                            supportingText = { Text("Give it a quick name so you can search later.") },
-                                            modifier = Modifier.fillMaxWidth(),
-                                            singleLine = true
-                                        )
-                                        Spacer(Modifier.height(10.dp))
-                                        OutlinedTextField(
-                                            value = state.note,
-                                            onValueChange = vm::updateNote,
-                                            label = { Text("Note") },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
-                                        Spacer(Modifier.height(10.dp))
-                                        OutlinedTextField(
-                                            value = state.placeText,
-                                            onValueChange = vm::updatePlace,
-                                            label = { Text("Place") },
-                                            supportingText = { Text("Auto-filled if location is available.") },
-                                            modifier = Modifier.fillMaxWidth()
-                                        )
+                            if (step == AddStep.REFLECT) {
+                                item {
+                                    IOSSectionHeader("✨ WHAT STANDS OUT?")
+                                    Text(
+                                        "These clues can help you find this memory later.",
+                                        style = MaterialTheme.typography.bodyMedium,
+                                        color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                        modifier = Modifier.padding(horizontal = 4.dp)
+                                    )
+                                }
+
+                                item {
+                                    KeywordEditor(
+                                        keywords = state.keywords,
+                                        onKeywordsChange = vm::updateKeywords,
+                                        prompt = state.keywordPrompt,
+                                        onPromptChange = vm::updateKeywordPrompt,
+                                        onApplyPrompt = vm::applyKeywordPrompt,
+                                        title = "Memory Clues",
+                                        supportingText = "On-device AI suggestions. Tap × to remove, or add your own clues.",
+                                        modifier = Modifier.fillMaxWidth()
+                                    )
+                                }
+
+                                item {
+                                    AnimatedVisibility(
+                                        visible = state.isGeneratingKeywords,
+                                        enter = fadeIn() + expandVertically(),
+                                        exit = fadeOut() + shrinkVertically()
+                                    ) {
+                                        Row(verticalAlignment = Alignment.CenterVertically) {
+                                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                                            Spacer(Modifier.size(8.dp))
+                                            Text("Generating clues…")
+                                        }
+                                    }
+                                }
+
+                                item {
+                                    IOSSectionHeader("📝 WANT TO SAY SOMETHING?")
+                                    IOSGroupedSurface {
+                                        Column(Modifier.padding(horizontal = 12.dp)) {
+                                            OutlinedTextField(
+                                                value = state.note,
+                                                onValueChange = vm::updateNote,
+                                                label = { Text("Optional note") },
+                                                placeholder = { Text("A quick sentence you’ll appreciate later…") },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
+                                    }
+                                }
+                            }
+
+                            if (step == AddStep.DETAILS) {
+                                item {
+                                    IOSSectionHeader("DETAILS")
+                                    IOSGroupedSurface {
+                                        Column(Modifier.padding(horizontal = 12.dp)) {
+                                            OutlinedTextField(
+                                                value = state.label,
+                                                onValueChange = vm::updateLabel,
+                                                label = { Text("Title") },
+                                                supportingText = { Text("Short and memorable. (Optional)") },
+                                                modifier = Modifier.fillMaxWidth(),
+                                                singleLine = true
+                                            )
+                                            Spacer(Modifier.height(10.dp))
+                                            OutlinedTextField(
+                                                value = state.placeText,
+                                                onValueChange = vm::updatePlace,
+                                                label = { Text("Place") },
+                                                supportingText = { Text("Auto-filled if location is available.") },
+                                                placeholder = { Text("Where was this?") },
+                                                modifier = Modifier.fillMaxWidth()
+                                            )
+                                        }
                                     }
                                 }
                             }
@@ -256,31 +331,6 @@ fun AddMemoryScreen(
                                 }
                             }
 
-                            item {
-                                KeywordEditor(
-                                    keywords = state.keywords,
-                                    onKeywordsChange = vm::updateKeywords,
-                                    prompt = state.keywordPrompt,
-                                    onPromptChange = vm::updateKeywordPrompt,
-                                    onApplyPrompt = vm::applyKeywordPrompt,
-                                    modifier = Modifier.fillMaxWidth()
-                                )
-                            }
-
-                            item {
-                                AnimatedVisibility(
-                                    visible = state.isGeneratingKeywords,
-                                    enter = fadeIn() + expandVertically(),
-                                    exit = fadeOut() + shrinkVertically()
-                                ) {
-                                    Row(verticalAlignment = Alignment.CenterVertically) {
-                                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                                        Spacer(Modifier.size(8.dp))
-                                        Text("Generating keywords…")
-                                    }
-                                }
-                            }
-
                             if (state.error != null) {
                                 item {
                                     Text(state.error!!, color = MaterialTheme.colorScheme.error)
@@ -301,6 +351,36 @@ fun AddMemoryScreen(
                     }
                 }
             }
+        }
+    }
+}
+
+@Composable
+private fun AddStepIndicator(step: AddStep) {
+    val current = when (step) {
+        AddStep.CAMERA -> 0
+        AddStep.REFLECT -> 1
+        AddStep.DETAILS -> 2
+    }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(top = 6.dp, bottom = 2.dp),
+        horizontalArrangement = Arrangement.Center,
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+        repeat(3) { idx ->
+            val isActive = idx == current
+            Box(
+                modifier = Modifier
+                    .padding(horizontal = 6.dp)
+                    .size(if (isActive) 10.dp else 8.dp)
+                    .clip(RoundedCornerShape(50))
+                    .background(
+                        if (isActive) MaterialTheme.colorScheme.primary
+                        else MaterialTheme.colorScheme.outlineVariant
+                    )
+            )
         }
     }
 }
