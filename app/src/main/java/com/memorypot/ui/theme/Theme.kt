@@ -22,16 +22,17 @@ import androidx.core.view.WindowCompat
 import androidx.core.view.WindowInsetsControllerCompat
 
 private val LightColors = lightColorScheme(
-    primary = Color(0xFF3B6BD6),
+    // iOS-inspired palette (clean, high-contrast, "premium" neutrals)
+    primary = Color(0xFF007AFF),
     onPrimary = Color.White,
-    secondary = Color(0xFF4E5D7A),
+    secondary = Color(0xFF34C759),
     onSecondary = Color.White,
-    tertiary = Color(0xFF2A7E6B),
+    tertiary = Color(0xFFFF9500),
     onTertiary = Color.White,
-    background = Color(0xFFF8F9FF),
-    surface = Color(0xFFFDFBFF),
-    surfaceVariant = Color(0xFFE6E9F6),
-    onSurfaceVariant = Color(0xFF3F4250)
+    background = Color(0xFFF2F2F7),
+    surface = Color(0xFFFFFFFF),
+    surfaceVariant = Color(0xFFE5E5EA),
+    onSurfaceVariant = Color(0xFF3A3A3C)
 )
 
 private val DarkColors = darkColorScheme(

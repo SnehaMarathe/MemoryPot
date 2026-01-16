@@ -86,6 +86,9 @@ dependencies {
     // On-device AI keywords (ML Kit Image Labeling)
     implementation "com.google.mlkit:image-labeling:17.0.8"
 
+    // Better object-centric keywords (ML Kit Object Detection & Tracking)
+    implementation "com.google.mlkit:object-detection:17.0.2"
+
     // Coil
     implementation "io.coil-kt:coil-compose:2.6.0"
 

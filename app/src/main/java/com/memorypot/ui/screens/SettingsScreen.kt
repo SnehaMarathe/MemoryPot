@@ -70,7 +70,8 @@ fun SettingsScreen(onBack: () -> Unit) {
         topBar = {
             AppTopBar(
                 title = "Settings",
-                onBack = onBack
+                onBack = onBack,
+                large = true
             )
         },
         snackbarHost = { SnackbarHost(snack) }

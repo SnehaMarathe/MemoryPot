@@ -110,7 +110,8 @@ fun HomeScreen(
                 title = "Memory Pot",
                 actionIcon = Icons.Default.Settings,
                 actionLabel = "Settings",
-                onAction = onSettings
+                onAction = onSettings,
+                large = true
             )
         },
         floatingActionButton = {

@@ -62,8 +62,40 @@ fun AppTopBar(
     onBack: (() -> Unit)? = null,
     actionIcon: ImageVector? = null,
     actionLabel: String? = null,
-    onAction: (() -> Unit)? = null
+    onAction: (() -> Unit)? = null,
+    large: Boolean = false
 ) {
+    val colors = if (large) {
+        TopAppBarDefaults.largeTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+    } else {
+        TopAppBarDefaults.centerAlignedTopAppBarColors(containerColor = MaterialTheme.colorScheme.background)
+    }
+
+    if (large) {
+        androidx.compose.material3.LargeTopAppBar(
+            title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
+            navigationIcon = {
+                if (onBack != null) {
+                    IconButton(onClick = onBack) {
+                        Icon(
+                            imageVector = androidx.compose.material.icons.Icons.Default.ArrowBack,
+                            contentDescription = "Back"
+                        )
+                    }
+                }
+            },
+            actions = {
+                if (actionIcon != null && onAction != null) {
+                    IconButton(onClick = onAction) {
+                        Icon(actionIcon, contentDescription = actionLabel ?: "")
+                    }
+                }
+            },
+            colors = colors
+        )
+        return
+    }
+
     CenterAlignedTopAppBar(
         title = { Text(title, maxLines = 1, overflow = TextOverflow.Ellipsis) },
         navigationIcon = {
@@ -83,9 +115,7 @@ fun AppTopBar(
                 }
             }
         },
-        colors = TopAppBarDefaults.centerAlignedTopAppBarColors(
-            containerColor = MaterialTheme.colorScheme.background
-        )
+        colors = colors
     )
 }
 

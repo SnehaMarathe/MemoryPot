@@ -14,7 +14,9 @@ class MainActivity : ComponentActivity() {
         val app = application as MemoryPotApp
         setContent {
             CompositionLocalProvider(LocalAppContainer provides app.container) {
-                MemoryPotTheme {
+                // Keep a consistent, premium look across devices ("Apple-like" stability),
+                // instead of per-device dynamic colors.
+                MemoryPotTheme(useDynamicColor = false) {
                     AppNav()
                 }
             }
