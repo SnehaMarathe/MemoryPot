@@ -2,6 +2,7 @@ package com.memorypot.ui.screens
 
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.clickable
+import androidx.compose.foundation.border
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
@@ -26,6 +27,7 @@ import androidx.compose.material3.Card
 import androidx.compose.material3.CardDefaults
 import androidx.compose.material3.FloatingActionButton
 import androidx.compose.material3.Icon
+import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.Scaffold
@@ -52,8 +54,7 @@ import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
 import com.memorypot.ui.components.Pill
-import com.memorypot.ui.components.SearchField
-import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.IOSSearchField
 import com.memorypot.ui.components.SuggestionCard
 import com.memorypot.viewmodel.HomeFilter
 import com.memorypot.viewmodel.HomeViewModel
@@ -105,15 +106,6 @@ fun HomeScreen(
 
     Scaffold(
         contentWindowInsets = WindowInsets.safeDrawing,
-        topBar = {
-            AppTopBar(
-                title = "Memory Pot",
-                actionIcon = Icons.Default.Settings,
-                actionLabel = "Settings",
-                onAction = onSettings,
-                large = true
-            )
-        },
         floatingActionButton = {
             FloatingActionButton(onClick = onAdd, containerColor = MaterialTheme.colorScheme.primary) {
                 Icon(Icons.Default.Add, contentDescription = "Add")
@@ -127,6 +119,36 @@ fun HomeScreen(
                 .padding(horizontal = 16.dp),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
+            // iOS-like large title header + trailing settings action
+            Row(
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .padding(top = 6.dp, bottom = 2.dp),
+                verticalAlignment = Alignment.CenterVertically,
+                horizontalArrangement = Arrangement.SpaceBetween
+            ) {
+                Column(modifier = Modifier.weight(1f)) {
+                    Text(
+                        "Memories",
+                        style = MaterialTheme.typography.headlineLarge,
+                        maxLines = 1,
+                        overflow = TextOverflow.Ellipsis
+                    )
+                    val subtitle = when (filter) {
+                        HomeFilter.ACTIVE -> "Active"
+                        HomeFilter.ARCHIVED -> "Archived"
+                    }
+                    Text(
+                        subtitle,
+                        style = MaterialTheme.typography.bodyMedium,
+                        color = MaterialTheme.colorScheme.onSurfaceVariant
+                    )
+                }
+                IconButton(onClick = onSettings) {
+                    Icon(Icons.Default.Settings, contentDescription = "Settings")
+                }
+            }
+
             // Search + Filter container
             Surface(
                 tonalElevation = 2.dp,
@@ -136,10 +158,10 @@ fun HomeScreen(
                 modifier = Modifier.fillMaxWidth()
             ) {
                 Column(modifier = Modifier.padding(12.dp), verticalArrangement = Arrangement.spacedBy(12.dp)) {
-                    SearchField(
+                    IOSSearchField(
                         value = query,
                         onValue = { vm.query.value = it },
-                        placeholder = "Search label, note, place"
+                        placeholder = "Search label, note, place, keywords"
                     )
 
                     SingleChoiceSegmentedButtonRow(modifier = Modifier.fillMaxWidth()) {
@@ -246,12 +268,14 @@ private fun MemoryCard(
     Card(
         modifier = Modifier
             .fillMaxWidth()
-            .height(240.dp)
-            .clip(RoundedCornerShape(24.dp))
+            .height(232.dp)
+            .animateItemPlacement()
+            .clip(RoundedCornerShape(22.dp))
+            .border(1.dp, MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(22.dp))
             .clickable { onOpen() },
-        shape = RoundedCornerShape(24.dp),
+        shape = RoundedCornerShape(22.dp),
         colors = CardDefaults.cardColors(containerColor = MaterialTheme.colorScheme.surface),
-        elevation = CardDefaults.cardElevation(defaultElevation = 2.dp)
+        elevation = CardDefaults.cardElevation(defaultElevation = 0.dp)
     ) {
         Column {
             Box(modifier = Modifier.weight(1f)) {
@@ -261,17 +285,18 @@ private fun MemoryCard(
                     contentScale = ContentScale.Crop,
                     modifier = Modifier
                         .fillMaxWidth()
-                        .height(150.dp)
-                        .clip(RoundedCornerShape(topStart = 24.dp, topEnd = 24.dp))
+                        .height(154.dp)
+                        .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                 )
 
                 // Small label pill overlay
                 val title = label.ifBlank { "Untitled" }
+                // Apple-ish: small pill with slightly more breathing room.
                 Pill(
                     label = title,
                     modifier = Modifier
                         .align(Alignment.TopStart)
-                        .padding(10.dp)
+                        .padding(12.dp)
                 )
             }
 

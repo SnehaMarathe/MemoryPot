@@ -89,6 +89,9 @@ dependencies {
     // Better object-centric keywords (ML Kit Object Detection & Tracking)
     implementation "com.google.mlkit:object-detection:17.0.2"
 
+    // Refined keywords: on-device OCR (signs, labels, documents) -> adds meaningful text keywords.
+    implementation "com.google.mlkit:text-recognition:16.0.0"
+
     // Read camera EXIF rotation so ML Kit sees the image upright (boosts recognition quality)
     implementation "androidx.exifinterface:exifinterface:1.3.7"
 

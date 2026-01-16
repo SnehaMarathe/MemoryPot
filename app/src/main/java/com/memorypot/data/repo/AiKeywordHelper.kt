@@ -13,6 +13,9 @@ import com.google.mlkit.vision.label.defaults.ImageLabelerOptions
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import com.google.mlkit.vision.text.TextRecognition
+import com.google.mlkit.vision.text.TextRecognizer
+import com.google.mlkit.vision.text.latin.TextRecognizerOptions
 import kotlinx.coroutines.Dispatchers
 import kotlinx.coroutines.tasks.await
 import kotlinx.coroutines.withContext
@@ -46,6 +49,11 @@ class AiKeywordHelper(private val context: Context) {
             .enableClassification() // enables per-object labels when available
             .build()
         ObjectDetection.getClient(opts)
+    }
+
+    private val textRecognizer: TextRecognizer by lazy {
+        // Latin options are broadly suitable and keep it on-device.
+        TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
     }
 
     /**
@@ -115,9 +123,28 @@ class AiKeywordHelper(private val context: Context) {
                     .filter { it.second >= (minConfidence - 0.20f).coerceAtLeast(0.25f) }
             }.getOrElse { emptyList() }
 
+            // 3) Text hints (signs, labels, packaging). We only keep short, clean tokens.
+            val textLabels = runCatching {
+                textRecognizer.process(image).await().text
+                    .lowercase(Locale.getDefault())
+                    .replace(Regex("[^a-z0-9\\n ]"), " ")
+                    .split(Regex("\\s+"))
+                    .map { it.trim() }
+                    .filter { it.length in 3..20 }
+                    .filterNot { STOP_WORDS.contains(it) }
+                    .distinct()
+                    .take(12)
+                    // Treat as medium confidence; we'll still rank with others.
+                    .map { it to 0.62f }
+            }.getOrElse { emptyList() }
+
             // Merge + rank: object labels get a small boost because users typically expect them.
-            val merged = (sceneLabels.map { it.first.lowercase(Locale.getDefault()) to it.second } +
-                objectLabels.map { it.first.lowercase(Locale.getDefault()) to (it.second + 0.12f).coerceAtMost(1f) })
+            val merged = (
+                sceneLabels.map { it.first.lowercase(Locale.getDefault()) to it.second } +
+                    objectLabels.map { it.first.lowercase(Locale.getDefault()) to (it.second + 0.12f).coerceAtMost(1f) } +
+                    // Text keywords get a small boost because they are often very specific.
+                    textLabels.map { it.first.lowercase(Locale.getDefault()) to (it.second + 0.08f).coerceAtMost(1f) }
+                )
 
             merged
                 .flatMap { (t, c) -> expandTokens(normalizeToken(t)).map { it to c } }

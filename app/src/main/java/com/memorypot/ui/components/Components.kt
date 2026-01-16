@@ -44,13 +44,22 @@ import androidx.compose.material3.CenterAlignedTopAppBar
 import androidx.compose.material3.TopAppBar
 import androidx.compose.material3.TopAppBarDefaults
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.vector.ImageVector
+import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
 import androidx.compose.ui.unit.dp
 import com.memorypot.data.repo.Confidence
 import com.memorypot.data.repo.LocationSuggestion
+
+// Optional blur for iOS-like bottom bars (Android 12+)
+import android.os.Build
+import androidx.compose.ui.graphics.graphicsLayer
+import android.graphics.RenderEffect
+import android.graphics.Shader
 
 /**
  * A “Play Store ready” top bar:
@@ -160,6 +169,49 @@ fun SearchField(
                 disabledContainerColor = MaterialTheme.colorScheme.surface,
                 focusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent,
                 unfocusedIndicatorColor = androidx.compose.ui.graphics.Color.Transparent
+            )
+        )
+    }
+}
+
+/**
+ * iOS-like inline search pill (Apple Photos-ish): soft gray surface, large touch target.
+ */
+@Composable
+fun IOSSearchField(
+    value: String,
+    onValue: (String) -> Unit,
+    modifier: Modifier = Modifier,
+    placeholder: String = "Search"
+) {
+    Surface(
+        modifier = modifier,
+        shape = RoundedCornerShape(18.dp),
+        tonalElevation = 0.dp,
+        shadowElevation = 0.dp,
+        color = MaterialTheme.colorScheme.surfaceVariant.copy(alpha = 0.55f)
+    ) {
+        TextField(
+            value = value,
+            onValueChange = onValue,
+            modifier = Modifier.fillMaxWidth(),
+            placeholder = { Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant) },
+            singleLine = true,
+            leadingIcon = { Icon(Icons.Default.Search, contentDescription = "Search") },
+            trailingIcon = {
+                if (value.isNotBlank()) {
+                    IconButton(onClick = { onValue("") }) {
+                        Icon(Icons.Default.Close, contentDescription = "Clear")
+                    }
+                }
+            },
+            colors = TextFieldDefaults.colors(
+                focusedContainerColor = Color.Transparent,
+                unfocusedContainerColor = Color.Transparent,
+                disabledContainerColor = Color.Transparent,
+                focusedIndicatorColor = Color.Transparent,
+                unfocusedIndicatorColor = Color.Transparent,
+                cursorColor = MaterialTheme.colorScheme.primary
             )
         )
     }
@@ -335,11 +387,20 @@ fun IOSBottomActionBar(
     modifier: Modifier = Modifier,
     content: @Composable () -> Unit
 ) {
+    // iOS-like blurred bar where supported. Fallback: translucent surface.
+    val blurModifier = remember {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            Modifier.graphicsLayer {
+                renderEffect = RenderEffect.createBlurEffect(18f, 18f, Shader.TileMode.CLAMP)
+            }
+        } else Modifier
+    }
     Surface(
         modifier = modifier
             .fillMaxWidth()
             .imePadding()
-            .navigationBarsPadding(),
+            .navigationBarsPadding()
+            .then(blurModifier),
         color = MaterialTheme.colorScheme.surface.copy(alpha = 0.92f),
         tonalElevation = 2.dp,
         shadowElevation = 6.dp

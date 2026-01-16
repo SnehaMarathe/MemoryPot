@@ -1,6 +1,7 @@
 package com.memorypot.ui.screens
 
 import androidx.compose.foundation.layout.Arrangement
+import androidx.compose.foundation.layout.Box
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -12,6 +13,9 @@ import androidx.compose.foundation.layout.heightIn
 import androidx.compose.foundation.layout.imePadding
 import androidx.compose.foundation.layout.navigationBarsPadding
 import androidx.compose.foundation.layout.padding
+import androidx.compose.foundation.shape.RoundedCornerShape
+import androidx.compose.ui.draw.clip
+import androidx.compose.ui.layout.ContentScale
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.material.icons.Icons
 import androidx.compose.material.icons.filled.ArrowBack
@@ -41,8 +45,11 @@ import androidx.compose.ui.unit.dp
 import androidx.lifecycle.viewmodel.compose.viewModel
 import coil.compose.AsyncImage
 import com.memorypot.di.LocalAppContainer
-import com.memorypot.ui.components.InlineRowKeyValue
 import com.memorypot.ui.components.AppTopBar
+import com.memorypot.ui.components.IOSBottomActionBar
+import com.memorypot.ui.components.IOSGroupedSurface
+import com.memorypot.ui.components.IOSRow
+import com.memorypot.ui.components.IOSSectionHeader
 import com.memorypot.ui.components.KeywordChipsDisplay
 import com.memorypot.viewmodel.DetailsViewModel
 import com.memorypot.viewmodel.DetailsVmFactory
@@ -66,12 +73,34 @@ fun MemoryDetailsScreen(
     Scaffold(
         topBar = {
             AppTopBar(
-                title = "Details",
+                title = "",
                 onBack = onBack,
                 actionIcon = Icons.Default.Settings,
                 actionLabel = "Settings",
                 onAction = onSettings
             )
+        },
+        bottomBar = {
+            val m = state.memory
+            if (m != null) {
+                IOSBottomActionBar {
+                    // Primary action mirrors Apple's bottom actions: full-width primary, secondary outlined.
+                    OutlinedButton(
+                        onClick = onEdit,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        Icon(Icons.Default.Edit, contentDescription = "Edit")
+                        Spacer(Modifier.padding(4.dp))
+                        Text("Edit")
+                    }
+
+                    Button(
+                        onClick = { vm.markFound(id) { onBack() } },
+                        modifier = Modifier.weight(1f),
+                        enabled = !m.isArchived
+                    ) { Text(if (m.isArchived) "Archived" else "Mark as Found") }
+                }
+            }
         }
     ) { padding ->
         val m = state.memory
@@ -98,72 +127,82 @@ fun MemoryDetailsScreen(
                 verticalArrangement = Arrangement.spacedBy(12.dp)
             ) {
                 item {
+                    // Hero photo card (Apple Photos-ish)
                     AsyncImage(
                         model = m.photoPath,
                         contentDescription = "Photo",
+                        contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
+                            .heightIn(min = 220.dp, max = 420.dp)
                             .aspectRatio(4f / 3f)
-                            .heightIn(max = 360.dp)
+                            .clip(RoundedCornerShape(22.dp))
                     )
                 }
 
                 item {
-                    Text(m.label.ifBlank { "Untitled" }, style = MaterialTheme.typography.headlineSmall)
+                    Text(
+                        m.label.ifBlank { "Untitled" },
+                        style = MaterialTheme.typography.headlineLarge
+                    )
                 }
 
                 if (m.note.isNotBlank()) {
-                    item { Text(m.note, style = MaterialTheme.typography.bodyLarge) }
+                    item {
+                        IOSSectionHeader("NOTE")
+                        IOSGroupedSurface {
+                            IOSRow(title = m.note, subtitle = null, showDivider = false)
+                        }
+                    }
                 }
 
-                item { InlineRowKeyValue("Place:", m.placeText.ifBlank { "Unknown place" }) }
+                item {
+                    IOSSectionHeader("DETAILS")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Place",
+                            subtitle = m.placeText.ifBlank { "Unknown place" },
+                            showDivider = true
+                        )
+                        IOSRow(
+                            title = "Saved",
+                            subtitle = java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt)),
+                            showDivider = true
+                        )
+                        val locText = if (m.latitude != null && m.longitude != null)
+                            "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
+                        else "Not saved"
+                        IOSRow(
+                            title = "GPS",
+                            subtitle = locText,
+                            showDivider = false
+                        )
+                    }
+                }
 
                 if (m.keywords.isNotBlank()) {
-                    item { KeywordChipsDisplay(m.keywords) }
+                    item {
+                        IOSSectionHeader("KEYWORDS")
+                        IOSGroupedSurface {
+                            // Chips in a grouped surface feels iOS-like
+                            Column(Modifier.padding(horizontal = 16.dp, vertical = 12.dp)) {
+                                KeywordChipsDisplay(m.keywords, title = "")
+                            }
+                        }
+                    }
                 }
 
                 item {
-                    InlineRowKeyValue(
-                        "Saved:",
-                        java.text.DateFormat.getDateTimeInstance().format(java.util.Date(m.createdAt))
-                    )
+                    IOSSectionHeader("DANGER ZONE")
+                    IOSGroupedSurface {
+                        IOSRow(
+                            title = "Delete memory",
+                            subtitle = "Removes the memory and deletes its photo from this device.",
+                            trailing = { TextButton(onClick = { confirmDelete = true }) { Text("Delete") } },
+                            showDivider = false
+                        )
+                    }
                 }
-
-                item {
-                    val locText = if (m.latitude != null && m.longitude != null)
-                        "${"%.5f".format(m.latitude)}, ${"%.5f".format(m.longitude)}"
-                    else "Not saved"
-                    InlineRowKeyValue("Location:", locText)
-                }
-            }
-
-            Row(
-                Modifier.fillMaxWidth(),
-                horizontalArrangement = Arrangement.spacedBy(10.dp)
-            ) {
-                Button(
-                    onClick = { vm.markFound(id) { onBack() } },
-                    modifier = Modifier.weight(1f),
-                    enabled = !m.isArchived
-                ) { Text(if (m.isArchived) "Archived" else "Mark as Found") }
-
-                OutlinedButton(
-                    onClick = onEdit,
-                    modifier = Modifier.weight(1f)
-                ) {
-                    Icon(Icons.Default.Edit, contentDescription = "Edit")
-                    Spacer(Modifier.padding(4.dp))
-                    Text("Edit")
-                }
-            }
-
-            OutlinedButton(
-                onClick = { confirmDelete = true },
-                modifier = Modifier.fillMaxWidth()
-            ) {
-                Icon(Icons.Default.Delete, contentDescription = "Delete")
-                Spacer(Modifier.padding(4.dp))
-                Text("Delete")
             }
         }
 
