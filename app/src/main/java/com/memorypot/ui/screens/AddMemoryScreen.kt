@@ -819,7 +819,10 @@ private fun CameraCapture(
     var liveImageW by remember { mutableStateOf(0) }
     var liveImageH by remember { mutableStateOf(0) }
     var liveBoxes by remember { mutableStateOf<List<LiveBox>>(emptyList()) }
-    val selectedLiveBoxes = remember { mutableStateListOf<RectF>() }
+    // Explicit type helps Kotlin choose the correct collection extensions (clear/isNotEmpty/toList)
+    // across differing Kotlin/Compose compiler versions.
+    val selectedLiveBoxes: androidx.compose.runtime.snapshots.SnapshotStateList<RectF> =
+        remember { mutableStateListOf() }
     val isAnalyzing = remember { AtomicBoolean(false) }
     var lastAnalyzeMs by remember { mutableStateOf(0L) }
 
@@ -1008,7 +1011,8 @@ private fun CameraCapture(
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
 								// SnapshotStateList is a live (mutable) list; pass a stable copy.
 								// Use ArrayList(copy) to avoid any extension-resolution weirdness across Kotlin versions.
-								onCaptured(file.absolutePath, ArrayList(selectedLiveBoxes))
+								// Pass a stable snapshot copy of the currently selected boxes.
+								onCaptured(file.absolutePath, selectedLiveBoxes.toList())
                         }
 
                         override fun onError(exception: ImageCaptureException) {
