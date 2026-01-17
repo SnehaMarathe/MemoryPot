@@ -1006,8 +1006,9 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-							// SnapshotStateList is a live (mutable) list; pass a stable copy.
-							onCaptured(file.absolutePath, selectedLiveBoxes.toList())
+								// SnapshotStateList is a live (mutable) list; pass a stable copy.
+								// Use ArrayList(copy) to avoid any extension-resolution weirdness across Kotlin versions.
+								onCaptured(file.absolutePath, ArrayList(selectedLiveBoxes))
                         }
 
                         override fun onError(exception: ImageCaptureException) {
