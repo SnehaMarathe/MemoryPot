@@ -610,7 +610,8 @@ private fun ObjectSelectDialog(
                         Button(
                             onClick = {
                                 if (selectedBoxes.isEmpty()) return@Button
-                                onUseSelection(selectedBoxes.toList())
+                                // Avoid any toList() overload ambiguity on some Kotlin/Compose toolchains.
+                                onUseSelection(selectedBoxes.map { it })
                             },
                             enabled = selectedBoxes.isNotEmpty(),
                             modifier = Modifier.weight(1f)
@@ -1005,7 +1006,8 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            onCaptured(file.absolutePath, selectedLiveBoxes.toList())
+                            // Avoid any toList() overload ambiguity on some Kotlin/Compose toolchains.
+                            onCaptured(file.absolutePath, selectedLiveBoxes.map { it })
                         }
 
                         override fun onError(exception: ImageCaptureException) {
