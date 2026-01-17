@@ -2,7 +2,6 @@ package com.memorypot.viewmodel
 
 import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import android.util.Log
 import com.memorypot.data.repo.AiKeywordHelper
 import com.memorypot.data.repo.MemoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
@@ -55,9 +54,7 @@ class AddMemoryViewModel(
         viewModelScope.launch {
             try {
                 val suggested = ai.suggestKeywords(photoPath)
-                Log.d("AI_KEYWORDS_SUGGESTED", suggested.joinToString("|"))
                 val merged = ai.mergePromptKeywords(suggested, _state.value.keywordPrompt)
-                Log.d("AI_KEYWORDS_MERGED", merged.joinToString("|"))
                 val text = merged.joinToString(", ")
                 _state.value = _state.value.copy(
                     keywords = if (_state.value.keywords.isBlank()) text else _state.value.keywords,

@@ -286,10 +286,11 @@ class AiKeywordHelper(private val context: Context) {
 
     private fun normalizeToken(raw: String): String {
         // Keep it human-friendly and searchable.
-        // - lowercased upstream
-        // - remove stray punctuation
-        // - collapse whitespace
-        return raw
+        // IMPORTANT: ML Kit labels are often Title Case (e.g., "Cup").
+        // Our previous sanitizer only allowed [a-z], which stripped the first capital letter
+        // ("Cup" -> "up"). We lowercase first, then strip punctuation safely.
+        val lower = raw.lowercase(Locale.getDefault())
+        return lower
             .replace(Regex("[^a-z0-9 ]"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")

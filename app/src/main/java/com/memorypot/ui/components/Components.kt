@@ -49,7 +49,6 @@ import androidx.compose.runtime.remember
 import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.graphics.Color
-import androidx.compose.ui.graphics.graphicsLayer
 import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.style.TextOverflow
@@ -429,7 +428,7 @@ fun Pill(label: String, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Text(" " + label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.graphicsLayer { clip = false }.padding(start = 6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -466,7 +465,7 @@ fun KeywordChipsDisplay(
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text(" " + kw, modifier = Modifier.graphicsLayer { clip = false }.padding(start = 6.dp)) },
+                    label = { Text(kw) },
                     colors = AssistChipDefaults.assistChipColors(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -534,7 +533,7 @@ fun KeywordEditor(
                         // Some OEM/font combos can visually clip the first glyph inside Material3 chips.
                         // To guarantee perfect rendering, we use our own simple "pill" chip.
                         Box(
-                        modifier = Modifier.graphicsLayer { clip = false }
+                            modifier = Modifier
                                 .background(
                                     color = MaterialTheme.colorScheme.surfaceVariant,
                                     shape = RoundedCornerShape(999.dp)
@@ -548,12 +547,12 @@ fun KeywordEditor(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = " " + kw,
-                                    modifier = Modifier.graphicsLayer { clip = false }.padding(start = 6.dp),
+                                    text = kw,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                                                    )
+                                    modifier = Modifier.padding(start = 2.dp) // extra safety
+                                )
                                 Icon(
                                     imageVector = Icons.Default.Close,
                                     contentDescription = "Remove",
@@ -617,10 +616,10 @@ private fun IOSSingleLineField(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        Text(" " + label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.graphicsLayer { clip = false }.padding(start = 6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
         Box(
-                        modifier = Modifier.graphicsLayer { clip = false }
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(14.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(14.dp))
@@ -636,7 +635,7 @@ private fun IOSSingleLineField(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer { clip = false }.padding(start = 6.dp) // prevents first-glyph clipping
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping on some OEMs
             )
         }
     }
@@ -652,10 +651,10 @@ private fun IOSMultilineField(
     modifier: Modifier = Modifier
 ) {
     Column(modifier = modifier) {
-        Text(" " + label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant, modifier = Modifier.graphicsLayer { clip = false }.padding(start = 6.dp))
+        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
         Box(
-                        modifier = Modifier.graphicsLayer { clip = false }
+            modifier = Modifier
                 .fillMaxWidth()
                 .background(MaterialTheme.colorScheme.surface, RoundedCornerShape(16.dp))
                 .border(1.dp, MaterialTheme.colorScheme.outlineVariant, RoundedCornerShape(16.dp))
@@ -672,7 +671,7 @@ private fun IOSMultilineField(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .graphicsLayer { clip = false }.padding(start = 6.dp) // prevents first-glyph clipping
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping
             )
         }
     }
