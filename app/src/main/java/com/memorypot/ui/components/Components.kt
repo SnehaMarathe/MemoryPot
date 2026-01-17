@@ -428,7 +428,10 @@ fun Pill(label: String, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Text("\u200A$label", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        // Some OEM/font combos can visually clip the first glyph (left bearing) when text is
+        // rendered inside rounded shapes/chips. A tiny leading hair-space reliably prevents it
+        // without changing the stored keyword value.
+        Text("\u00A0$label", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -465,8 +468,8 @@ fun KeywordChipsDisplay(
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    // Add a leading hair space to avoid rare first-glyph clipping on some OEM fonts.
-                    label = { Text("\u200A$kw") },
+                    // Prevent first-glyph clipping on certain OEM fonts.
+                    label = { Text("\u00A0$kw") },
                     colors = AssistChipDefaults.assistChipColors(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -548,10 +551,8 @@ fun KeywordEditor(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    // Some OEM font renderers can still clip the first glyph (even with padding)
-                                    // due to negative left side-bearings. A tiny leading hair space forces the
-                                    // glyph to render fully without changing the underlying keyword value.
-                                    text = "\u200A$kw",
+                                    // Prevent first-glyph clipping on certain OEM fonts.
+                                    text = "\u00A0$kw",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
