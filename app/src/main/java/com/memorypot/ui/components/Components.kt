@@ -60,10 +60,6 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.defaultMinSize
-import androidx.compose.ui.text.AnnotatedString
-import androidx.compose.ui.text.input.OffsetMapping
-import androidx.compose.ui.text.input.TransformedText
-import androidx.compose.ui.text.input.VisualTransformation
 
 /**
  * A “Play Store ready” top bar:
@@ -469,7 +465,7 @@ fun KeywordChipsDisplay(
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text(safeChipLabel(kw)) },
+                    label = { Text(kw) },
                     colors = AssistChipDefaults.assistChipColors(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -551,11 +547,11 @@ fun KeywordEditor(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = safeChipLabel(kw),
+                                    text = kw,
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier
+                                    modifier = Modifier.padding(start = 2.dp) // extra safety
                                 )
                                 Icon(
                                     imageVector = Icons.Default.Close,
@@ -611,26 +607,6 @@ fun KeywordEditor(
 // iOS-like text fields (avoid OEM glyph clipping)
 // -------------------------
 
-/**
- * Some OEM font renderers can clip the first glyph (e.g., 'm', 'j') when text is clipped to bounds.
- * A leading hair space fixes this without changing the underlying value.
- */
-private object LeadingHairSpaceTransformation : VisualTransformation {
-    private const val HAIR_SPACE = "\u200A"
-
-    override fun filter(text: AnnotatedString): TransformedText {
-        if (text.text.isEmpty()) return TransformedText(text, OffsetMapping.Identity)
-        val transformed = AnnotatedString(HAIR_SPACE + text.text)
-        val mapping = object : OffsetMapping {
-            override fun originalToTransformed(offset: Int): Int = offset + 1
-            override fun transformedToOriginal(offset: Int): Int = (offset - 1).coerceAtLeast(0)
-        }
-        return TransformedText(transformed, mapping)
-    }
-}
-
-private fun safeChipLabel(s: String): String = "\u200A$s"
-
 @Composable
 private fun IOSSingleLineField(
     value: String,
@@ -650,17 +626,16 @@ private fun IOSSingleLineField(
                 .padding(horizontal = 14.dp, vertical = 12.dp)
         ) {
             if (value.isBlank()) {
-                Text(safeChipLabel(placeholder), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             androidx.compose.foundation.text.BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = true,
-                visualTransformation = LeadingHairSpaceTransformation,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 2.dp)
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping on some OEMs
             )
         }
     }
@@ -687,17 +662,16 @@ private fun IOSMultilineField(
                 .defaultMinSize(minHeight = (minLines * 22).dp)
         ) {
             if (value.isBlank()) {
-                Text(safeChipLabel(placeholder), color = MaterialTheme.colorScheme.onSurfaceVariant)
+                Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
             androidx.compose.foundation.text.BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = false,
-                visualTransformation = LeadingHairSpaceTransformation,
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 2.dp)
+                    .padding(start = 2.dp) // critical: prevents first-glyph clipping
             )
         }
     }

@@ -179,10 +179,19 @@ class AiKeywordHelper(private val context: Context) {
                         parts.any { it.length >= 6 }
                     }
 
+                // If we detect strong brand-like tokens (e.g., "lenovo") we keep a bit more OCR,
+                // even when objects exist. This improves clue usefulness for electronics/tools
+                // where the brand/model text is often the most searchable signal.
+                val hasStrong = tokens.any { BRAND_TOKENS.contains(it) || it.length >= 7 }
+                val ocrLimit = when {
+                    hasObjects && hasStrong -> 4
+                    hasObjects && !hasStrong -> 2
+                    else -> 4
+                }
+
                 val keep = (bigrams + tokens)
                     .distinct()
-                    // If objects exist, OCR is usually secondary (avoid noisy brands/text).
-                    .take(if (hasObjects) 2 else 4)
+                    .take(ocrLimit)
 
                 keep.map {
                     Candidate(
@@ -250,18 +259,36 @@ class AiKeywordHelper(private val context: Context) {
 
     private fun expandTokens(token: String): List<String> {
         // ML Kit sometimes returns multi-word labels like "mobile phone".
-        // Keeping both the phrase and the most informative words improves search + UX.
+        // Keeping the phrase helps ("mobile phone"), but splitting into EVERY word often creates
+        // noisy/low-value clues (e.g., "mobile"). We keep the phrase plus a single "head" noun.
         val words = token.split(' ').map { it.trim() }.filter { it.isNotBlank() }
         if (words.size <= 1) return listOf(token)
-        val trimmed = words.filterNot { STOP_WORDS.contains(it) }
-        val singleWords = trimmed.filter { it.length >= 3 }
-        return (listOf(token) + singleWords).distinct()
+
+        val trimmed = words
+            .filterNot { STOP_WORDS.contains(it) }
+            .filterNot { MODIFIER_WORDS.contains(it) }
+
+        // Heuristic: the last word is usually the searchable noun ("phone" in "mobile phone").
+        val head = trimmed.lastOrNull()?.takeIf { it.length >= 3 }
+        return (listOf(token) + listOfNotNull(head)).distinct()
     }
 
     private companion object {
         private val STOP_WORDS = setOf(
             "a", "an", "the", "and", "or", "of", "to", "in", "on", "with",
             "object", "thing", "items", "item", "photo", "picture", "image"
+        )
+
+        // Common adjective-like modifiers that don't help search on their own.
+        private val MODIFIER_WORDS = setOf(
+            "mobile", "portable", "electric", "electronic", "digital", "wireless", "small", "large"
+        )
+
+        // OCR tokens we consider especially useful for search (brands are a big win).
+        private val BRAND_TOKENS = setOf(
+            "lenovo", "dell", "hp", "asus", "acer", "msi",
+            "samsung", "xiaomi", "oppo", "vivo", "oneplus", "nokia",
+            "iphone", "ipad", "macbook", "thinkpad"
         )
 
         // Labels that are common but usually not helpful as "object" keywords.
@@ -273,7 +300,9 @@ class AiKeywordHelper(private val context: Context) {
             "art", "design", "pattern", "text", "font",
             "food", "meal", "cuisine", "dish",
             "plant", "flower", "tree", "nature",
-            "person", "people", "human", "man", "woman", "child"
+            "person", "people", "human", "man", "woman", "child",
+            // Common ML Kit mislabels that tend to reduce precision for everyday photos.
+            "jumper"
         )
     }
 
