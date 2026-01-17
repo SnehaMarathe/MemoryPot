@@ -135,6 +135,24 @@ class AiKeywordHelper(private val context: Context) {
 
             val hasObjects = objectCandidates.isNotEmpty()
 
+            // --- B0) OCR FIRST PASS (signals) ------------------------------------------------
+            // OCR is often the most precise signal for electronics/photos of branded items.
+            // We do a light pass here to detect strong domain hints (e.g., laptop brands),
+            // then run the full OCR candidate extraction later.
+            val (ocrRawLower, ocrHintTags) = runCatching {
+                val raw = textRecognizer.process(image).await().text
+                    .lowercase(Locale.getDefault())
+                val tokens = raw
+                    .replace(Regex("[^a-z0-9\\n ]"), " ")
+                    .split(Regex("\\s+"))
+                    .map { it.trim() }
+                    .filter { it.length in 3..24 }
+                    .filter { it.any { ch -> ch.isLetter() } }
+
+                val hasLaptopHint = tokens.any { LAPTOP_HINTS.contains(it) || LAPTOP_BRANDS.contains(it) }
+                raw to (if (hasLaptopHint) setOf("laptop") else emptySet())
+            }.getOrElse { "" to emptySet() }
+
             // --- B) SCENE (only if very confident, or if we didn't find objects) --------------
             val sceneCandidates: List<Candidate> = runCatching {
                 labeler.process(image).await()
@@ -144,7 +162,7 @@ class AiKeywordHelper(private val context: Context) {
                         val c = lbl.confidence
                         // If objects exist, allow only very high-confidence scene/context labels.
                         val threshold = if (hasObjects) 0.78f else minConfidence
-                        c >= threshold && !GENERIC_LABELS.contains(t)
+                        c >= threshold && !GENERIC_LABELS.contains(t) && !BAD_LABELS.contains(t)
                     }
                     .take(if (hasObjects) 2 else 5)
                     .map { lbl ->
@@ -158,8 +176,8 @@ class AiKeywordHelper(private val context: Context) {
 
             // --- C) OCR (only used as a precision booster; heavily filtered) -----------------
             val ocrCandidates: List<Candidate> = runCatching {
-                val raw = textRecognizer.process(image).await().text
-                    .lowercase(Locale.getDefault())
+                val raw = if (ocrRawLower.isNotBlank()) ocrRawLower
+                else textRecognizer.process(image).await().text.lowercase(Locale.getDefault())
 
                 val tokens = raw
                     .replace(Regex("[^a-z0-9\\n ]"), " ")
@@ -169,6 +187,7 @@ class AiKeywordHelper(private val context: Context) {
                     .filter { it.any { ch -> ch.isLetter() } }
                     .filterNot { STOP_WORDS.contains(it) }
                     .filterNot { GENERIC_LABELS.contains(it) }
+                    .filterNot { BAD_LABELS.contains(it) }
 
                 // Useful bigrams, but require at least one "strong" token.
                 val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
@@ -179,30 +198,48 @@ class AiKeywordHelper(private val context: Context) {
                         parts.any { it.length >= 6 }
                     }
 
-                // If we detect strong brand-like tokens (e.g., "lenovo") we keep a bit more OCR,
-                // even when objects exist. This improves clue usefulness for electronics/tools
-                // where the brand/model text is often the most searchable signal.
-                val hasStrong = tokens.any { BRAND_TOKENS.contains(it) || it.length >= 7 }
-                val ocrLimit = when {
-                    hasObjects && hasStrong -> 4
-                    hasObjects && !hasStrong -> 2
+                val hasLaptopHint = tokens.any { LAPTOP_HINTS.contains(it) || LAPTOP_BRANDS.contains(it) } || ocrHintTags.contains("laptop")
+
+                // If we detect a laptop/computer hint via OCR (brands, model words), we keep more
+                // OCR tokens because they're usually highly searchable ("lenovo", "thinkpad", etc.).
+                // Otherwise keep OCR conservative to avoid noisy text.
+                val ocrTake = when {
+                    hasLaptopHint -> if (hasObjects) 6 else 8
+                    hasObjects -> 2
                     else -> 4
                 }
 
                 val keep = (bigrams + tokens)
                     .distinct()
-                    .take(ocrLimit)
+                    .take(ocrTake)
 
-                keep.map {
+                val injected = if (hasLaptopHint) listOf("laptop", "computer", "keyboard") else emptyList()
+
+                (keep + injected).distinct().map {
+                    val baseScore = when {
+                        hasLaptopHint -> if (hasObjects) 0.72f else 0.78f
+                        hasObjects -> 0.62f
+                        else -> 0.68f
+                    }
                     Candidate(
                         token = it,
-                        score = if (hasObjects) 0.62f else 0.68f,
+                        score = baseScore,
                         source = Source.OCR
                     )
                 }
             }.getOrElse { emptyList() }
 
-            val all = (objectCandidates + sceneCandidates + ocrCandidates)
+            // If OCR strongly indicates a laptop/computer, suppress common mislabels that are
+            // frequent false-positives in desk/keyboard scenes.
+            val ocrSuggestsLaptop = ocrCandidates.any { it.token.lowercase(Locale.getDefault()) in setOf("laptop", "computer", "keyboard") }
+            val filteredScene = if (ocrSuggestsLaptop) {
+                sceneCandidates.filterNot {
+                    val t = it.token.lowercase(Locale.getDefault())
+                    t in MUSIC_MISLABELS
+                }
+            } else sceneCandidates
+
+            val all = (objectCandidates + filteredScene + ocrCandidates)
 
             // Expand + dedupe while keeping the BEST score per token.
             val scored = all
@@ -214,6 +251,7 @@ class AiKeywordHelper(private val context: Context) {
                 .filter { it.token.isNotBlank() && it.token.length >= 2 }
                 .filterNot { STOP_WORDS.contains(it.token) }
                 .filterNot { GENERIC_LABELS.contains(it.token) }
+                .filterNot { BAD_LABELS.contains(it.token) }
                 .groupBy { it.token }
                 .map { (t, xs) ->
                     // Prefer object sources when scores are similar.
@@ -259,17 +297,18 @@ class AiKeywordHelper(private val context: Context) {
 
     private fun expandTokens(token: String): List<String> {
         // ML Kit sometimes returns multi-word labels like "mobile phone".
-        // Keeping the phrase helps ("mobile phone"), but splitting into EVERY word often creates
-        // noisy/low-value clues (e.g., "mobile"). We keep the phrase plus a single "head" noun.
+        // We keep:
+        //  - the full phrase (good for search)
+        //  - the head noun (usually the last meaningful word) to avoid spammy splits
+        // We intentionally do NOT explode into every individual word.
         val words = token.split(' ').map { it.trim() }.filter { it.isNotBlank() }
         if (words.size <= 1) return listOf(token)
-
         val trimmed = words
+            .map { it.lowercase(Locale.getDefault()) }
             .filterNot { STOP_WORDS.contains(it) }
-            .filterNot { MODIFIER_WORDS.contains(it) }
 
-        // Heuristic: the last word is usually the searchable noun ("phone" in "mobile phone").
-        val head = trimmed.lastOrNull()?.takeIf { it.length >= 3 }
+        // Head noun: last word that is not a common modifier.
+        val head = trimmed.lastOrNull { w -> w.length >= 3 && !MODIFIER_WORDS.contains(w) }
         return (listOf(token) + listOfNotNull(head)).distinct()
     }
 
@@ -277,18 +316,6 @@ class AiKeywordHelper(private val context: Context) {
         private val STOP_WORDS = setOf(
             "a", "an", "the", "and", "or", "of", "to", "in", "on", "with",
             "object", "thing", "items", "item", "photo", "picture", "image"
-        )
-
-        // Common adjective-like modifiers that don't help search on their own.
-        private val MODIFIER_WORDS = setOf(
-            "mobile", "portable", "electric", "electronic", "digital", "wireless", "small", "large"
-        )
-
-        // OCR tokens we consider especially useful for search (brands are a big win).
-        private val BRAND_TOKENS = setOf(
-            "lenovo", "dell", "hp", "asus", "acer", "msi",
-            "samsung", "xiaomi", "oppo", "vivo", "oneplus", "nokia",
-            "iphone", "ipad", "macbook", "thinkpad"
         )
 
         // Labels that are common but usually not helpful as "object" keywords.
@@ -300,9 +327,42 @@ class AiKeywordHelper(private val context: Context) {
             "art", "design", "pattern", "text", "font",
             "food", "meal", "cuisine", "dish",
             "plant", "flower", "tree", "nature",
-            "person", "people", "human", "man", "woman", "child",
-            // Common ML Kit mislabels that tend to reduce precision for everyday photos.
-            "jumper"
+            "person", "people", "human", "man", "woman", "child"
+        )
+
+        // Frequent false-positives / low-value labels we never want as user-facing clues.
+        private val BAD_LABELS = setOf(
+            "jumper",
+            "musical instrument",
+            "instrument",
+            "string instrument",
+            "guitar",
+            "music"
+        )
+
+        // Subset used specifically to suppress scene mislabels when OCR indicates a laptop/desk.
+        private val MUSIC_MISLABELS = setOf(
+            "musical instrument",
+            "instrument",
+            "string instrument",
+            "guitar",
+            "music"
+        )
+
+        // Words that are usually modifiers and become noisy when split out.
+        private val MODIFIER_WORDS = setOf(
+            "mobile", "portable", "wireless", "digital", "electric", "electronic",
+            "small", "large", "black", "white", "silver", "blue", "red"
+        )
+
+        // OCR hints that strongly imply the photo is of a computer/laptop setup.
+        private val LAPTOP_HINTS = setOf(
+            "laptop", "notebook", "thinkpad", "macbook", "keyboard", "touchpad", "windows"
+        )
+
+        private val LAPTOP_BRANDS = setOf(
+            "lenovo", "dell", "hp", "asus", "acer", "apple", "microsoft",
+            "intel", "amd", "nvidia", "thinkpad", "ideapad"
         )
     }
 
