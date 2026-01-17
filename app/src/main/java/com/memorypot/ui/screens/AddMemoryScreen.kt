@@ -1006,9 +1006,8 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            // SnapshotStateList is an Iterable; pass a stable copy.
-                            // Use an explicit lambda parameter to avoid rare implicit-`it` resolution issues.
-                            onCaptured(file.absolutePath, selectedLiveBoxes.map { rf -> rf })
+							// SnapshotStateList is a live (mutable) list; pass a stable copy.
+							onCaptured(file.absolutePath, selectedLiveBoxes.toList())
                         }
 
                         override fun onError(exception: ImageCaptureException) {
