@@ -30,9 +30,29 @@ import java.util.Locale
  */
 class AiKeywordHelper(private val context: Context) {
 
+    /**
+     * Public representation of a detected object region.
+     *
+     * Coordinates are in the upright bitmap space produced by [decodeScaledBitmapUpright] (maxDim=1280).
+     */
+    data class DetectedRegion(
+        val id: Int,
+        val boundingBox: android.graphics.Rect,
+        val labels: List<String> = emptyList()
+    )
+
+    /**
+     * Result for object detection on a photo, including the bitmap dimensions used.
+     */
+    data class DetectedObjectsResult(
+        val bitmapWidth: Int,
+        val bitmapHeight: Int,
+        val regions: List<DetectedRegion>
+    )
+
     // We keep track of where a keyword came from so we can rank more precisely.
     // Users primarily expect concrete nouns (objects), so we prefer those.
-    private enum class Source { OBJECT_DIRECT, OBJECT_CROP, SCENE, OCR }
+    private enum class Source { OBJECT_DIRECT, OBJECT_CROP, USER_REGION, SCENE, OCR }
 
     private data class Candidate(
         val token: String,
@@ -64,6 +84,118 @@ class AiKeywordHelper(private val context: Context) {
     private val textRecognizer: TextRecognizer by lazy {
         // Latin options are broadly suitable and keep it on-device.
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
+    }
+
+    /**
+     * Detect multiple objects in the photo and return their bounding boxes.
+     * This is used by the post-capture "tap-to-select" flow so users can choose
+     * the specific object they want clues for.
+     */
+    suspend fun detectObjects(photoPath: String): DetectedObjectsResult = withContext(Dispatchers.IO) {
+        val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280)
+            ?: return@withContext DetectedObjectsResult(0, 0, emptyList())
+        val image = InputImage.fromBitmap(bmp, 0)
+        val objects = runCatching { objectDetector.process(image).await() }.getOrElse { emptyList() }
+        val regions = objects.mapIndexed { idx, obj ->
+            val labels = obj.labels.map { it.text.trim() }.filter { it.isNotBlank() }
+            DetectedRegion(id = idx, boundingBox = obj.boundingBox, labels = labels)
+        }
+        DetectedObjectsResult(bitmapWidth = bmp.width, bitmapHeight = bmp.height, regions = regions)
+    }
+
+    /**
+     * Suggest keywords for a specific region of the photo (cropped to [region]).
+     *
+     * This dramatically improves accuracy when multiple objects are present.
+     */
+    suspend fun suggestKeywordsForRegion(
+        photoPath: String,
+        region: android.graphics.Rect,
+        max: Int = 8
+    ): List<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280) ?: error("Failed to decode image")
+            val crop = safeCrop(bmp, region) ?: error("Failed to crop region")
+            val image = InputImage.fromBitmap(crop, 0)
+
+            // --- Labels on the crop (primary) ---
+            val cropLabels = runCatching {
+                labeler.process(image).await()
+                    .sortedByDescending { it.confidence }
+                    .filter { it.confidence >= 0.55f }
+                    .take(6)
+                    .map { lbl ->
+                        Candidate(
+                            token = lbl.text.trim(),
+                            score = (lbl.confidence * 1.05f).coerceAtMost(1f),
+                            source = Source.USER_REGION
+                        )
+                    }
+            }.getOrElse { emptyList() }
+
+            // --- OCR on the crop (precision booster) ---
+            val ocr = runCatching {
+                val raw = textRecognizer.process(image).await().text.lowercase(Locale.getDefault())
+                val tokens = raw
+                    .replace(Regex("[^a-z0-9\\n ]"), " ")
+                    .split(Regex("\\s+"))
+                    .map { it.trim() }
+                    .filter { it.length in 4..18 }
+                    .filter { it.any { ch -> ch.isLetter() } }
+                    .filterNot { STOP_WORDS.contains(it) }
+                    .filterNot { GENERIC_LABELS.contains(it) }
+                    .filterNot { HARD_DENYLIST.contains(it) }
+                    .filterNot { BAD_LABELS.contains(it) }
+
+                val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
+                    .map { (a, b) -> "$a $b" }
+                    .filter { it.length in 7..26 }
+                    .filterNot { bg ->
+                        val parts = bg.split(' ')
+                        parts.any { p -> STOP_WORDS.contains(p) || HARD_DENYLIST.contains(p) || GENERIC_LABELS.contains(p) }
+                    }
+
+                (bigrams + tokens).distinct().take(6)
+                    .map { t -> Candidate(token = t, score = 0.72f, source = Source.OCR) }
+            }.getOrElse { emptyList() }
+
+            val all = cropLabels + ocr
+
+            val scored = all
+                .flatMap { c ->
+                    expandTokens(normalizeToken(c.token)).map { t ->
+                        Candidate(token = t, score = c.score, source = c.source)
+                    }
+                }
+                .filter { it.token.isNotBlank() && it.token.length >= 2 }
+                .filterNot { STOP_WORDS.contains(it.token) }
+                .filterNot { GENERIC_LABELS.contains(it.token) }
+                .filterNot { HARD_DENYLIST.contains(it.token) }
+                .filterNot { BAD_LABELS.contains(it.token) }
+                .groupBy { it.token }
+                .map { (t, xs) ->
+                    val best = xs.maxByOrNull { it.score + sourceBoost(it.source) }!!
+                    best.copy(token = t)
+                }
+                .sortedByDescending { it.score + sourceBoost(it.source) }
+
+            val out = scored.map { it.token }.distinct().toMutableList()
+
+            // Context cleanup (same as full-image pipeline)
+            val drinkwareHints = setOf("cup", "mug", "glass", "tableware", "drinkware", "ceramic", "porcelain")
+            if (out.any { drinkwareHints.contains(it) }) {
+                out.removeAll(setOf("product", "goods", "material", "textile", "paper", "container", "object", "item", "thing"))
+                if (!out.contains("cup")) out.add(0, "cup")
+                if (!out.contains("mug")) out.add(1.coerceAtMost(out.size), "mug")
+            }
+
+            val electronicsHints = setOf("television", "tv", "monitor", "laptop", "computer", "screen", "keyboard")
+            if (out.any { electronicsHints.contains(it) }) {
+                out.removeAll(setOf("product", "goods", "equipment", "device", "object", "item", "thing"))
+            }
+
+            out.distinct().take(max)
+        }.getOrElse { emptyList() }
     }
 
     /**
@@ -305,6 +437,7 @@ class AiKeywordHelper(private val context: Context) {
     private fun sourceBoost(s: Source): Float = when (s) {
         Source.OBJECT_DIRECT -> 0.12f
         Source.OBJECT_CROP -> 0.08f
+        Source.USER_REGION -> 0.14f
         Source.SCENE -> 0.02f
         Source.OCR -> 0.04f
     }

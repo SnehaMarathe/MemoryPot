@@ -13,10 +13,12 @@ import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
 import androidx.compose.animation.fadeOut
 import androidx.compose.foundation.background
+import androidx.compose.foundation.Canvas
 import androidx.compose.foundation.rememberScrollState
 import androidx.compose.foundation.verticalScroll
 import androidx.compose.foundation.layout.Arrangement
 import androidx.compose.foundation.layout.Box
+import androidx.compose.foundation.layout.BoxWithConstraints
 import androidx.compose.foundation.layout.Column
 import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
@@ -32,6 +34,8 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.windowInsetsPadding
 import androidx.compose.foundation.ExperimentalFoundationApi
+import androidx.compose.foundation.gestures.detectDragGestures
+import androidx.compose.foundation.gestures.detectTapGestures
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -52,6 +56,7 @@ import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
@@ -65,6 +70,10 @@ import androidx.compose.ui.Alignment
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
+import androidx.compose.ui.geometry.Offset
+import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.text.font.FontWeight
 import androidx.compose.ui.unit.dp
@@ -81,6 +90,9 @@ import com.memorypot.viewmodel.AddVmFactory
 import kotlinx.coroutines.delay
 import kotlinx.coroutines.launch
 import java.util.concurrent.Executor
+import androidx.compose.ui.window.Dialog
+import kotlin.math.max
+import kotlin.math.min
 
 private enum class ReflectPage { CLUES, NOTE, PLACE }
 
@@ -100,6 +112,8 @@ fun AddMemoryScreen(
 
     var capturedPath by remember { mutableStateOf<String?>(null) }
     var showReflectSheet by remember { mutableStateOf(false) }
+    var showObjectPicker by remember { mutableStateOf(false) }
+    var showObjectPicker by remember { mutableStateOf(false) }
 
     // Location permission (optional, if the user enabled Save location in Settings)
     val saveLocationEnabled by container.settings.saveLocationFlow.collectAsState(initial = true)
@@ -176,6 +190,22 @@ fun AddMemoryScreen(
                     vm.generateKeywords(photoPath)
                 }
 
+                if (showObjectPicker) {
+                    ObjectSelectDialog(
+                        photoPath = photoPath,
+                        isDetecting = state.isDetectingObjects,
+                        objects = state.detectedObjects,
+                        bitmapWidth = state.detectedBitmapWidth,
+                        bitmapHeight = state.detectedBitmapHeight,
+                        onRequestDetect = { vm.detectObjects(photoPath) },
+                        onDismiss = { showObjectPicker = false },
+                        onUseSelection = { rect ->
+                            vm.generateKeywordsForRegion(photoPath, rect)
+                            showObjectPicker = false
+                        }
+                    )
+                }
+
                 if (showReflectSheet) {
                     ModalBottomSheet(
                         onDismissRequest = {
@@ -194,6 +224,7 @@ fun AddMemoryScreen(
                             onKeywordsChange = vm::updateKeywords,
                             onPromptChange = vm::updateKeywordPrompt,
                             onApplyPrompt = vm::applyKeywordPrompt,
+                            onSelectObject = { showObjectPicker = true },
                             onNoteChange = vm::updateNote,
                             onTitleChange = vm::updateLabel,
                             onPlaceChange = vm::updatePlace,
@@ -230,6 +261,7 @@ private fun ReflectSheetContent(
     onKeywordsChange: (String) -> Unit,
     onPromptChange: (String) -> Unit,
     onApplyPrompt: () -> Unit,
+    onSelectObject: () -> Unit,
     onNoteChange: (String) -> Unit,
     onTitleChange: (String) -> Unit,
     onPlaceChange: (String) -> Unit,
@@ -349,6 +381,18 @@ private fun ReflectSheetContent(
                             )
                         }
 
+                        OutlinedButton(
+                            onClick = onSelectObject,
+                            modifier = Modifier.fillMaxWidth()
+                        ) {
+                            Text("Select an object in the photo")
+                        }
+                        Text(
+                            "Helpful when there are multiple objects — tap a detected object or draw a box.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+
                         if (state.error != null) {
                             Text(state.error, color = MaterialTheme.colorScheme.error)
                         }
@@ -462,6 +506,256 @@ private fun ReflectSheetContent(
             }
         }
         Spacer(Modifier.height(6.dp))
+    }
+}
+
+@OptIn(ExperimentalMaterial3Api::class)
+@Composable
+private fun ObjectSelectDialog(
+    photoPath: String,
+    isDetecting: Boolean,
+    objects: List<com.memorypot.data.repo.AiKeywordHelper.DetectedRegion>,
+    bitmapWidth: Int,
+    bitmapHeight: Int,
+    onRequestDetect: () -> Unit,
+    onDismiss: () -> Unit,
+    onUseSelection: (android.graphics.Rect) -> Unit
+) {
+    LaunchedEffect(photoPath) {
+        // Kick off detection the first time the dialog appears.
+        onRequestDetect()
+    }
+
+    var selectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    var dragStart by remember { mutableStateOf<Offset?>(null) }
+    var dragEnd by remember { mutableStateOf<Offset?>(null) }
+
+    Dialog(onDismissRequest = onDismiss) {
+        Scaffold(
+            topBar = {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .padding(horizontal = 12.dp, vertical = 10.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    IconButton(onClick = onDismiss) {
+                        Icon(Icons.Default.ArrowBack, contentDescription = "Close")
+                    }
+                    Text(
+                        "Select object",
+                        style = MaterialTheme.typography.titleMedium,
+                        fontWeight = FontWeight.SemiBold,
+                        modifier = Modifier.weight(1f)
+                    )
+                    OutlinedButton(onClick = onRequestDetect, enabled = !isDetecting) {
+                        Text("Refresh")
+                    }
+                }
+            },
+            bottomBar = {
+                Column(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .navigationBarsPadding()
+                        .padding(12.dp),
+                    verticalArrangement = Arrangement.spacedBy(8.dp)
+                ) {
+                    if (isDetecting) {
+                        Row(verticalAlignment = Alignment.CenterVertically) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(10.dp))
+                            Text("Detecting objects…")
+                        }
+                    } else {
+                        Text(
+                            "Tap a highlighted object, or drag to draw a box.",
+                            style = MaterialTheme.typography.bodySmall,
+                            color = MaterialTheme.colorScheme.onSurfaceVariant
+                        )
+                    }
+
+                    Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                        OutlinedButton(
+                            onClick = {
+                                selectedBox = null
+                                dragStart = null
+                                dragEnd = null
+                            },
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Clear") }
+
+                        Button(
+                            onClick = {
+                                val rect = selectedBox ?: return@Button
+                                onUseSelection(rect)
+                            },
+                            enabled = selectedBox != null,
+                            modifier = Modifier.weight(1f)
+                        ) { Text("Use selection") }
+                    }
+                }
+            }
+        ) { pad ->
+            BoxWithConstraints(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(pad)
+                    .background(MaterialTheme.colorScheme.surface)
+            ) {
+                // We render the image Fit so mapping is stable.
+                AsyncImage(
+                    model = photoPath,
+                    contentDescription = "Photo",
+                    contentScale = ContentScale.Fit,
+                    modifier = Modifier.fillMaxSize()
+                )
+
+                val bw = bitmapWidth
+                val bh = bitmapHeight
+
+                // If detection didn't run yet, we can still allow manual selection by drawing.
+                // For manual selection, we map view coords to bitmap coords; if bitmap size unknown,
+                // we fall back to view-space rect and let the VM crop using those numbers by
+                // decoding a 1280px bitmap and clamping.
+
+                // Draw overlays and handle interactions.
+                Canvas(
+                    modifier = Modifier
+                        .fillMaxSize()
+                        .pointerInput(objects, bw, bh) {
+                            detectTapGestures { tap ->
+                                if (bw <= 0 || bh <= 0) return@detectTapGestures
+                                val w = size.width
+                                val h = size.height
+                                val scale = kotlin.math.min(w / bw.toFloat(), h / bh.toFloat())
+                                val dx = (w - bw * scale) / 2f
+                                val dy = (h - bh * scale) / 2f
+                                val bx = ((tap.x - dx) / scale)
+                                val by = ((tap.y - dy) / scale)
+                                val hit = objects.firstOrNull { r ->
+                                    r.boundingBox.contains(bx.toInt(), by.toInt())
+                                }
+                                if (hit != null) {
+                                    selectedBox = android.graphics.Rect(hit.boundingBox)
+                                    dragStart = null
+                                    dragEnd = null
+                                }
+                            }
+                        }
+                        .pointerInput(bw, bh) {
+                            detectDragGestures(
+                                onDragStart = { start ->
+                                    selectedBox = null
+                                    dragStart = start
+                                    dragEnd = start
+                                },
+                                onDrag = { change, _ ->
+                                    dragEnd = change.position
+                                },
+                                onDragEnd = {
+                                    // Convert the drag rect from view coords to bitmap coords if possible.
+                                    if (bw <= 0 || bh <= 0) return@detectDragGestures
+                                    val s = dragStart
+                                    val e = dragEnd
+                                    if (s == null || e == null) return@detectDragGestures
+                                    val w = size.width
+                                    val h = size.height
+                                    val scale = kotlin.math.min(w / bw.toFloat(), h / bh.toFloat())
+                                    val dx = (w - bw * scale) / 2f
+                                    val dy = (h - bh * scale) / 2f
+
+                                    fun toBitmap(o: Offset): Offset {
+                                        val bx = ((o.x - dx) / scale).coerceIn(0f, bw.toFloat())
+                                        val by = ((o.y - dy) / scale).coerceIn(0f, bh.toFloat())
+                                        return Offset(bx, by)
+                                    }
+
+                                    val bs = toBitmap(s)
+                                    val be = toBitmap(e)
+                                    selectedBox = android.graphics.Rect(
+                                        kotlin.math.min(bs.x, be.x).toInt(),
+                                        kotlin.math.min(bs.y, be.y).toInt(),
+                                        kotlin.math.max(bs.x, be.x).toInt(),
+                                        kotlin.math.max(bs.y, be.y).toInt()
+                                    )
+                                }
+                            )
+                        }
+                ) {
+                    val w = size.width
+                    val h = size.height
+
+                    // If bitmap dims known, we can draw accurate boxes.
+                    if (bw > 0 && bh > 0) {
+                        val scale = kotlin.math.min(w / bw.toFloat(), h / bh.toFloat())
+                        val dx = (w - bw * scale) / 2f
+                        val dy = (h - bh * scale) / 2f
+
+                        objects.forEach { r ->
+                            val b = r.boundingBox
+                            val left = dx + b.left * scale
+                            val top = dy + b.top * scale
+                            val right = dx + b.right * scale
+                            val bottom = dy + b.bottom * scale
+
+                            drawRect(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                            )
+                            drawRect(
+                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.90f),
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                            )
+                        }
+
+                        // Draw selected box (tap or manual)
+                        val sel = selectedBox
+                        if (sel != null) {
+                            val left = dx + sel.left * scale
+                            val top = dy + sel.top * scale
+                            val right = dx + sel.right * scale
+                            val bottom = dy + sel.bottom * scale
+                            drawRect(
+                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                            )
+                            drawRect(
+                                color = MaterialTheme.colorScheme.tertiary,
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
+                            )
+                        }
+                    } else {
+                        // Bitmap size unknown: draw manual view-space rect so the user still sees feedback.
+                        val s = dragStart
+                        val e = dragEnd
+                        if (s != null && e != null) {
+                            val left = kotlin.math.min(s.x, e.x)
+                            val top = kotlin.math.min(s.y, e.y)
+                            val right = kotlin.math.max(s.x, e.x)
+                            val bottom = kotlin.math.max(s.y, e.y)
+                            drawRect(
+                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                            )
+                            drawRect(
+                                color = MaterialTheme.colorScheme.tertiary,
+                                topLeft = Offset(left, top),
+                                size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                                style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
+                            )
+                        }
+                    }
+                }
+            }
+        }
     }
 }
 
