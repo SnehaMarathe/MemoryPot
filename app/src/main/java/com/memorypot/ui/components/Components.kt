@@ -428,7 +428,7 @@ fun Pill(label: String, modifier: Modifier = Modifier) {
             .background(MaterialTheme.colorScheme.surfaceVariant, RoundedCornerShape(999.dp))
             .padding(horizontal = 10.dp, vertical = 6.dp)
     ) {
-        Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
+        Text("\u200A$label", style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
     }
 }
 
@@ -465,7 +465,8 @@ fun KeywordChipsDisplay(
                 AssistChip(
                     onClick = {},
                     enabled = false,
-                    label = { Text(kw) },
+                    // Add a leading hair space to avoid rare first-glyph clipping on some OEM fonts.
+                    label = { Text("\u200A$kw") },
                     colors = AssistChipDefaults.assistChipColors(
                         disabledContainerColor = MaterialTheme.colorScheme.surfaceVariant,
                         disabledLabelColor = MaterialTheme.colorScheme.onSurfaceVariant
@@ -547,7 +548,10 @@ fun KeywordEditor(
                                 horizontalArrangement = Arrangement.spacedBy(8.dp)
                             ) {
                                 Text(
-                                    text = kw,
+                                    // Some OEM font renderers can still clip the first glyph (even with padding)
+                                    // due to negative left side-bearings. A tiny leading hair space forces the
+                                    // glyph to render fully without changing the underlying keyword value.
+                                    text = "\u200A$kw",
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
