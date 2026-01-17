@@ -1006,8 +1006,9 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            // Avoid any toList() overload ambiguity on some Kotlin/Compose toolchains.
-                            onCaptured(file.absolutePath, selectedLiveBoxes.map { it })
+                            // SnapshotStateList is an Iterable; pass a stable copy.
+                            // Use an explicit lambda parameter to avoid rare implicit-`it` resolution issues.
+                            onCaptured(file.absolutePath, selectedLiveBoxes.map { rf -> rf })
                         }
 
                         override fun onError(exception: ImageCaptureException) {
