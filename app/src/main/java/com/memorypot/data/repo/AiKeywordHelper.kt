@@ -187,6 +187,7 @@ class AiKeywordHelper(private val context: Context) {
                     .filter { it.any { ch -> ch.isLetter() } }
                     .filterNot { STOP_WORDS.contains(it) }
                     .filterNot { GENERIC_LABELS.contains(it) }
+                    .filterNot { HARD_DENYLIST.contains(it) }
                     .filterNot { BAD_LABELS.contains(it) }
 
                 // Useful bigrams, but require at least one "strong" token.
@@ -196,6 +197,11 @@ class AiKeywordHelper(private val context: Context) {
                     .filter { bg ->
                         val parts = bg.split(' ')
                         parts.any { it.length >= 6 }
+                    }
+                    // Avoid useless phrases like "some good" / "very good".
+                    .filterNot { bg ->
+                        val parts = bg.split(' ')
+                        parts.any { p -> STOP_WORDS.contains(p) || HARD_DENYLIST.contains(p) || GENERIC_LABELS.contains(p) }
                     }
 
                 val hasLaptopHint = tokens.any { LAPTOP_HINTS.contains(it) || LAPTOP_BRANDS.contains(it) } || ocrHintTags.contains("laptop")
@@ -251,6 +257,7 @@ class AiKeywordHelper(private val context: Context) {
                 .filter { it.token.isNotBlank() && it.token.length >= 2 }
                 .filterNot { STOP_WORDS.contains(it.token) }
                 .filterNot { GENERIC_LABELS.contains(it.token) }
+                .filterNot { HARD_DENYLIST.contains(it.token) }
                 .filterNot { BAD_LABELS.contains(it.token) }
                 .groupBy { it.token }
                 .map { (t, xs) ->
@@ -270,7 +277,25 @@ class AiKeywordHelper(private val context: Context) {
             }
             out += (others.map { it.token }).filterNot { out.contains(it) }
 
-            out.distinct().take(max)
+            // Final context-aware cleanup: remove generic junk when a strong domain is present.
+            val cleaned = out.distinct().toMutableList()
+
+            // Drinkware/tableware: keep concrete nouns, drop generic hallucinations.
+            val drinkwareHints = setOf("cup", "mug", "glass", "tableware", "drinkware", "ceramic", "porcelain")
+            if (cleaned.any { drinkwareHints.contains(it) }) {
+                cleaned.removeAll(setOf("product", "goods", "material", "textile", "paper", "container", "object", "item", "thing"))
+                // Ensure the key nouns are present.
+                if (!cleaned.contains("cup")) cleaned.add(0, "cup")
+                if (!cleaned.contains("mug")) cleaned.add(1.coerceAtMost(cleaned.size), "mug")
+            }
+
+            // Electronics: suppress generic terms like "device"/"equipment".
+            val electronicsHints = setOf("television", "tv", "monitor", "laptop", "computer", "screen", "keyboard")
+            if (cleaned.any { electronicsHints.contains(it) }) {
+                cleaned.removeAll(setOf("product", "goods", "equipment", "device", "object", "item", "thing"))
+            }
+
+            cleaned.distinct().take(max)
         }.getOrElse { t ->
             Log.w("AiKeywordHelper", "ML Kit labeling failed for path=$photoPath", t)
             emptyList()
@@ -316,7 +341,17 @@ class AiKeywordHelper(private val context: Context) {
     private companion object {
         private val STOP_WORDS = setOf(
             "a", "an", "the", "and", "or", "of", "to", "in", "on", "with",
-            "object", "thing", "items", "item", "photo", "picture", "image"
+            "object", "thing", "items", "item", "photo", "picture", "image",
+            // Common OCR filler words that create junk bigrams like "some good".
+            "some", "good", "very", "more", "best"
+        )
+
+        // Extra hard filters for low-value / generic terms that frequently show up in ML Kit
+        // labels and OCR, but don't help users search for a memory later.
+        private val HARD_DENYLIST = setOf(
+            "product", "goods", "material", "textile", "paper",
+            "device", "equipment", "container",
+            "object", "item", "thing", "stuff"
         )
 
         // Labels that are common but usually not helpful as "object" keywords.
