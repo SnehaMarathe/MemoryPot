@@ -4,6 +4,7 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
+import android.graphics.RectF
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.common.InputImage
@@ -195,6 +196,33 @@ class AiKeywordHelper(private val context: Context) {
             }
 
             out.distinct().take(max)
+        }.getOrElse { emptyList() }
+    }
+
+    /**
+     * Suggest keywords for multiple regions specified in normalized [0..1] coordinates.
+     * This is used by the live camera selector where detections are computed on a preview stream.
+     */
+    suspend fun suggestKeywordsForNormalizedRegions(
+        photoPath: String,
+        regions: List<RectF>,
+        maxPerRegion: Int = 8,
+        maxOut: Int = 16
+    ): List<String> = withContext(Dispatchers.IO) {
+        runCatching {
+            if (regions.isEmpty()) return@runCatching emptyList()
+            val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280) ?: error("Failed to decode image")
+            val out = buildList {
+                regions.forEach { rf ->
+                    val left = (rf.left.coerceIn(0f, 1f) * bmp.width).toInt()
+                    val top = (rf.top.coerceIn(0f, 1f) * bmp.height).toInt()
+                    val right = (rf.right.coerceIn(0f, 1f) * bmp.width).toInt()
+                    val bottom = (rf.bottom.coerceIn(0f, 1f) * bmp.height).toInt()
+                    val rect = android.graphics.Rect(left, top, right, bottom)
+                    addAll(suggestKeywordsForRegion(photoPath, rect, max = maxPerRegion))
+                }
+            }
+            out.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(maxOut)
         }.getOrElse { emptyList() }
     }
 

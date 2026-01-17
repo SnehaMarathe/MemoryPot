@@ -4,6 +4,7 @@ import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
 import com.memorypot.data.repo.AiKeywordHelper
 import com.memorypot.data.repo.MemoryRepository
+import android.graphics.RectF
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
 import kotlinx.coroutines.launch
@@ -133,6 +134,90 @@ class AddMemoryViewModel(
                     keywords = promptMerged.joinToString(", "),
                     isGeneratingKeywords = false,
                     error = if (suggested.isEmpty()) "No AI keywords detected for this selection (try drawing a slightly larger box)." else null
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(
+                    isGeneratingKeywords = false,
+                    error = t.message ?: "Failed to generate AI keywords"
+                )
+            }
+        }
+    }
+
+    /**
+     * Generate keywords from multiple selected regions.
+     * This is used when the user taps several detected objects (or draws multiple boxes).
+     */
+    fun generateKeywordsForRegions(photoPath: String, regions: List<android.graphics.Rect>) {
+        val s = _state.value
+        if (s.isGeneratingKeywords) return
+        if (regions.isEmpty()) return
+        _state.value = s.copy(isGeneratingKeywords = true, error = null)
+        viewModelScope.launch {
+            try {
+                // Aggregate suggestions across boxes.
+                val suggested = buildList {
+                    regions.forEach { r ->
+                        addAll(ai.suggestKeywordsForRegion(photoPath, r, max = 8))
+                    }
+                }
+
+                // Preserve any user-entered keywords already in the editor.
+                val current = _state.value.keywords
+                    .split(',', ';', '\n')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+
+                val merged = (current + suggested)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(25)
+
+                val promptMerged = ai.mergePromptKeywords(merged, _state.value.keywordPrompt)
+                _state.value = _state.value.copy(
+                    keywords = promptMerged.joinToString(", "),
+                    isGeneratingKeywords = false,
+                    error = if (suggested.isEmpty()) "No AI keywords detected for these selections (try slightly larger boxes)." else null
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(
+                    isGeneratingKeywords = false,
+                    error = t.message ?: "Failed to generate AI keywords"
+                )
+            }
+        }
+    }
+
+    /**
+     * Generate keywords for multiple regions that are specified in normalized [0..1] coordinates.
+     * Used by the live camera selector so selections can carry across to the captured photo.
+     */
+    fun generateKeywordsForNormalizedRegions(photoPath: String, regions: List<RectF>) {
+        val s = _state.value
+        if (s.isGeneratingKeywords) return
+        if (regions.isEmpty()) return
+        _state.value = s.copy(isGeneratingKeywords = true, error = null)
+        viewModelScope.launch {
+            try {
+                val suggested = ai.suggestKeywordsForNormalizedRegions(photoPath, regions)
+
+                val current = _state.value.keywords
+                    .split(',', ';', '\n')
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+
+                val merged = (current + suggested)
+                    .map { it.trim() }
+                    .filter { it.isNotBlank() }
+                    .distinct()
+                    .take(25)
+
+                val promptMerged = ai.mergePromptKeywords(merged, _state.value.keywordPrompt)
+                _state.value = _state.value.copy(
+                    keywords = promptMerged.joinToString(", "),
+                    isGeneratingKeywords = false,
+                    error = if (suggested.isEmpty()) "No AI keywords detected for these selections." else null
                 )
             } catch (t: Throwable) {
                 _state.value = _state.value.copy(

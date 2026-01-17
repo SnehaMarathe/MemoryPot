@@ -4,8 +4,10 @@ import android.Manifest
 import android.content.pm.PackageManager
 import androidx.activity.compose.rememberLauncherForActivityResult
 import androidx.camera.core.CameraSelector
+import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
 import androidx.camera.core.ImageCaptureException
+import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
 import androidx.camera.view.PreviewView
@@ -93,8 +95,18 @@ import java.util.concurrent.Executor
 import androidx.compose.ui.window.Dialog
 import kotlin.math.max
 import kotlin.math.min
+import java.util.concurrent.Executors
+import java.util.concurrent.atomic.AtomicBoolean
+import android.graphics.RectF
+import com.google.mlkit.vision.common.InputImage
+import com.google.mlkit.vision.objects.ObjectDetection
+import com.google.mlkit.vision.objects.ObjectDetector
+import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 
 private enum class ReflectPage { CLUES, NOTE, PLACE }
+
+// Live preview object detection box in normalized [0..1] coordinates.
+private data class LiveBox(val rect: RectF, val label: String?)
 
 @OptIn(ExperimentalMaterial3Api::class, ExperimentalFoundationApi::class)
 @Composable
@@ -113,7 +125,10 @@ fun AddMemoryScreen(
     var capturedPath by remember { mutableStateOf<String?>(null) }
     var showReflectSheet by remember { mutableStateOf(false) }
     var showObjectPicker by remember { mutableStateOf(false) }
-    var showObjectPicker by remember { mutableStateOf(false) }
+
+    // Live-preview object selections (normalized 0..1 rects) carried over to the captured photo.
+    var pendingLiveSelections by remember { mutableStateOf<List<android.graphics.RectF>>(emptyList()) }
+    var appliedLiveSelectionsForPath by remember { mutableStateOf<String?>(null) }
 
     // Location permission (optional, if the user enabled Save location in Settings)
     val saveLocationEnabled by container.settings.saveLocationFlow.collectAsState(initial = true)
@@ -168,10 +183,12 @@ fun AddMemoryScreen(
             if (photoPath == null) {
                 CameraCapture(
                     onBack = onCancel,
-                    onCaptured = { path ->
+                    onCaptured = { path, liveSelections ->
                         // New capture: ensure we don't carry over the previous photo's AI clues.
                         vm.resetForNewCapture()
                         capturedPath = path
+                        pendingLiveSelections = liveSelections
+                        appliedLiveSelectionsForPath = null
                         showReflectSheet = true
                     },
                     photoStore = photoStore
@@ -187,7 +204,12 @@ fun AddMemoryScreen(
 
                 // Auto-generate AI keywords once per capture.
                 LaunchedEffect(photoPath) {
-                    vm.generateKeywords(photoPath)
+                    if (pendingLiveSelections.isNotEmpty() && appliedLiveSelectionsForPath != photoPath) {
+                        appliedLiveSelectionsForPath = photoPath
+                        vm.generateKeywordsForNormalizedRegions(photoPath, pendingLiveSelections)
+                    } else {
+                        vm.generateKeywords(photoPath)
+                    }
                 }
 
                 if (showObjectPicker) {
@@ -199,8 +221,8 @@ fun AddMemoryScreen(
                         bitmapHeight = state.detectedBitmapHeight,
                         onRequestDetect = { vm.detectObjects(photoPath) },
                         onDismiss = { showObjectPicker = false },
-                        onUseSelection = { rect ->
-                            vm.generateKeywordsForRegion(photoPath, rect)
+                        onUseSelection = { rects ->
+                            vm.generateKeywordsForRegions(photoPath, rects)
                             showObjectPicker = false
                         }
                     )
@@ -519,14 +541,14 @@ private fun ObjectSelectDialog(
     bitmapHeight: Int,
     onRequestDetect: () -> Unit,
     onDismiss: () -> Unit,
-    onUseSelection: (android.graphics.Rect) -> Unit
+    onUseSelection: (List<android.graphics.Rect>) -> Unit
 ) {
     LaunchedEffect(photoPath) {
         // Kick off detection the first time the dialog appears.
         onRequestDetect()
     }
 
-    var selectedBox by remember { mutableStateOf<android.graphics.Rect?>(null) }
+    val selectedBoxes = remember { mutableStateListOf<android.graphics.Rect>() }
     var dragStart by remember { mutableStateOf<Offset?>(null) }
     var dragEnd by remember { mutableStateOf<Offset?>(null) }
 
@@ -578,7 +600,7 @@ private fun ObjectSelectDialog(
                     Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
                         OutlinedButton(
                             onClick = {
-                                selectedBox = null
+                                selectedBoxes.clear()
                                 dragStart = null
                                 dragEnd = null
                             },
@@ -587,10 +609,10 @@ private fun ObjectSelectDialog(
 
                         Button(
                             onClick = {
-                                val rect = selectedBox ?: return@Button
-                                onUseSelection(rect)
+                                if (selectedBoxes.isEmpty()) return@Button
+                                onUseSelection(selectedBoxes.toList())
                             },
-                            enabled = selectedBox != null,
+                            enabled = selectedBoxes.isNotEmpty(),
                             modifier = Modifier.weight(1f)
                         ) { Text("Use selection") }
                     }
@@ -637,7 +659,9 @@ private fun ObjectSelectDialog(
                                     r.boundingBox.contains(bx.toInt(), by.toInt())
                                 }
                                 if (hit != null) {
-                                    selectedBox = android.graphics.Rect(hit.boundingBox)
+                                    val rect = android.graphics.Rect(hit.boundingBox)
+                                    val idx = selectedBoxes.indexOfFirst { it == rect }
+                                    if (idx >= 0) selectedBoxes.removeAt(idx) else selectedBoxes.add(rect)
                                     dragStart = null
                                     dragEnd = null
                                 }
@@ -646,7 +670,6 @@ private fun ObjectSelectDialog(
                         .pointerInput(bw, bh) {
                             detectDragGestures(
                                 onDragStart = { start ->
-                                    selectedBox = null
                                     dragStart = start
                                     dragEnd = start
                                 },
@@ -673,12 +696,16 @@ private fun ObjectSelectDialog(
 
                                     val bs = toBitmap(s)
                                     val be = toBitmap(e)
-                                    selectedBox = android.graphics.Rect(
+                                    val rect = android.graphics.Rect(
                                         kotlin.math.min(bs.x, be.x).toInt(),
                                         kotlin.math.min(bs.y, be.y).toInt(),
                                         kotlin.math.max(bs.x, be.x).toInt(),
                                         kotlin.math.max(bs.y, be.y).toInt()
                                     )
+                                    // Add the manual rect as an additional selection.
+                                    if (rect.width() > 12 && rect.height() > 12) {
+                                        selectedBoxes.add(rect)
+                                    }
                                 }
                             )
                         }
@@ -712,9 +739,8 @@ private fun ObjectSelectDialog(
                             )
                         }
 
-                        // Draw selected box (tap or manual)
-                        val sel = selectedBox
-                        if (sel != null) {
+                        // Draw selected boxes (tap or manual)
+                        selectedBoxes.forEach { sel ->
                             val left = dx + sel.left * scale
                             val top = dy + sel.top * scale
                             val right = dx + sel.right * scale
@@ -762,7 +788,7 @@ private fun ObjectSelectDialog(
 @Composable
 private fun CameraCapture(
     onBack: () -> Unit,
-    onCaptured: (String) -> Unit,
+    onCaptured: (String, List<RectF>) -> Unit,
     photoStore: PhotoStore
 ) {
     val context = LocalContext.current
@@ -770,6 +796,29 @@ private fun CameraCapture(
     val hasCamera = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+
+    // Live preview selector
+    // We run on-device ML Kit object detection on a throttled preview stream and let the user
+    // tap multiple boxes before capturing.
+    val analysisExecutor = remember { Executors.newSingleThreadExecutor() }
+    val detector by remember {
+        mutableStateOf(
+            ObjectDetection.getClient(
+                ObjectDetectorOptions.Builder()
+                    .setDetectorMode(ObjectDetectorOptions.STREAM_MODE)
+                    .enableMultipleObjects()
+                    .enableClassification()
+                    .build()
+            )
+        )
+    }
+
+    var liveImageW by remember { mutableStateOf(0) }
+    var liveImageH by remember { mutableStateOf(0) }
+    var liveBoxes by remember { mutableStateOf<List<LiveBox>>(emptyList()) }
+    val selectedLiveBoxes = remember { mutableStateListOf<RectF>() }
+    val isAnalyzing = remember { AtomicBoolean(false) }
+    var lastAnalyzeMs by remember { mutableStateOf(0L) }
 
     Box(Modifier.fillMaxSize()) {
         if (!hasCamera) {
@@ -789,11 +838,13 @@ private fun CameraCapture(
             return@Box
         }
 
+        // Camera preview view
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // Use FIT_CENTER so our overlay mapping math is stable.
+                    scaleType = PreviewView.ScaleType.FIT_CENTER
                 }
 
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
@@ -805,6 +856,26 @@ private fun CameraCapture(
                     val capture = ImageCapture.Builder()
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build()
+
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+
+                    analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        analyzeFrameForObjects(
+                            imageProxy = imageProxy,
+                            detector = detector,
+                            onResult = { w, h, boxes ->
+                                liveImageW = w
+                                liveImageH = h
+                                liveBoxes = boxes
+                            },
+                            isAnalyzing = isAnalyzing,
+                            getLastMs = { lastAnalyzeMs },
+                            setLastMs = { lastAnalyzeMs = it }
+                        )
+                    }
+
                     imageCapture = capture
                     try {
                         cameraProvider.unbindAll()
@@ -812,7 +883,8 @@ private fun CameraCapture(
                             (ctx as androidx.activity.ComponentActivity),
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
-                            capture
+                            capture,
+                            analysis
                         )
                     } catch (_: Throwable) {
                     }
@@ -821,6 +893,102 @@ private fun CameraCapture(
                 previewView
             }
         )
+
+        // Overlay with live boxes + multi-select.
+        Canvas(
+            modifier = Modifier
+                .fillMaxSize()
+                .pointerInput(liveBoxes, liveImageW, liveImageH) {
+                    detectTapGestures { tap ->
+                        if (liveImageW <= 0 || liveImageH <= 0) return@detectTapGestures
+                        val w = size.width
+                        val h = size.height
+                        val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                        val dx = (w - liveImageW * scale) / 2f
+                        val dy = (h - liveImageH * scale) / 2f
+
+                        val ix = ((tap.x - dx) / scale) / liveImageW.toFloat()
+                        val iy = ((tap.y - dy) / scale) / liveImageH.toFloat()
+
+                        val hit = liveBoxes.firstOrNull { b ->
+                            b.rect.contains(ix, iy)
+                        }
+                        if (hit != null) {
+                            val r = RectF(hit.rect)
+                            val idx = selectedLiveBoxes.indexOfFirst { it == r }
+                            if (idx >= 0) selectedLiveBoxes.removeAt(idx) else selectedLiveBoxes.add(r)
+                        }
+                    }
+                }
+        ) {
+            val w = size.width
+            val h = size.height
+            if (liveImageW > 0 && liveImageH > 0) {
+                val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                val dx = (w - liveImageW * scale) / 2f
+                val dy = (h - liveImageH * scale) / 2f
+
+                liveBoxes.forEach { b ->
+                    val left = dx + b.rect.left * liveImageW * scale
+                    val top = dy + b.rect.top * liveImageH * scale
+                    val right = dx + b.rect.right * liveImageW * scale
+                    val bottom = dy + b.rect.bottom * liveImageH * scale
+                    drawRect(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                    )
+                    drawRect(
+                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                    )
+                }
+
+                // Selected boxes
+                selectedLiveBoxes.forEach { rf ->
+                    val left = dx + rf.left * liveImageW * scale
+                    val top = dy + rf.top * liveImageH * scale
+                    val right = dx + rf.right * liveImageW * scale
+                    val bottom = dy + rf.bottom * liveImageH * scale
+                    drawRect(
+                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                    )
+                    drawRect(
+                        color = MaterialTheme.colorScheme.tertiary,
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
+                    )
+                }
+            }
+        }
+
+        // Minimal hints + clear button
+        Column(
+            modifier = Modifier
+                .align(Alignment.TopCenter)
+                .padding(top = 16.dp)
+                .fillMaxWidth(),
+            horizontalAlignment = Alignment.CenterHorizontally
+        ) {
+            AnimatedVisibility(visible = selectedLiveBoxes.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    horizontalArrangement = Arrangement.spacedBy(10.dp),
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text("Selected: ${'$'}{selectedLiveBoxes.size}", style = MaterialTheme.typography.bodySmall)
+                    TextButton(onClick = { selectedLiveBoxes.clear() }) { Text("Clear") }
+                }
+            }
+        }
 
         // iOS-like: one primary shutter button, no clutter.
         Button(
@@ -833,7 +1001,7 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            onCaptured(file.absolutePath)
+                            onCaptured(file.absolutePath, selectedLiveBoxes.toList())
                         }
 
                         override fun onError(exception: ImageCaptureException) {
@@ -852,4 +1020,68 @@ private fun CameraCapture(
             Text("Capture")
         }
     }
+}
+
+/**
+ * Throttled ML Kit object detection on a CameraX preview stream.
+ *
+ * Returns boxes in normalized [0..1] coordinates in the *upright* image space (after applying
+ * [ImageProxy.imageInfo.rotationDegrees]).
+ */
+private fun analyzeFrameForObjects(
+    imageProxy: ImageProxy,
+    detector: ObjectDetector,
+    onResult: (imageW: Int, imageH: Int, boxes: List<LiveBox>) -> Unit,
+    isAnalyzing: AtomicBoolean,
+    getLastMs: () -> Long,
+    setLastMs: (Long) -> Unit,
+    minIntervalMs: Long = 450L
+) {
+    val now = System.currentTimeMillis()
+    if (now - getLastMs() < minIntervalMs) {
+        imageProxy.close()
+        return
+    }
+    if (!isAnalyzing.compareAndSet(false, true)) {
+        imageProxy.close()
+        return
+    }
+    setLastMs(now)
+
+    val mediaImage = imageProxy.image
+    if (mediaImage == null) {
+        isAnalyzing.set(false)
+        imageProxy.close()
+        return
+    }
+
+    val rotation = imageProxy.imageInfo.rotationDegrees
+    // For 90/270 rotations, the upright image width/height are swapped.
+    val uprightW = if (rotation == 90 || rotation == 270) imageProxy.height else imageProxy.width
+    val uprightH = if (rotation == 90 || rotation == 270) imageProxy.width else imageProxy.height
+
+    val input = InputImage.fromMediaImage(mediaImage, rotation)
+    detector.process(input)
+        .addOnSuccessListener { objs ->
+            val boxes = objs.mapNotNull { obj ->
+                val b = obj.boundingBox
+                if (uprightW <= 0 || uprightH <= 0) return@mapNotNull null
+                val rf = RectF(
+                    (b.left.toFloat() / uprightW).coerceIn(0f, 1f),
+                    (b.top.toFloat() / uprightH).coerceIn(0f, 1f),
+                    (b.right.toFloat() / uprightW).coerceIn(0f, 1f),
+                    (b.bottom.toFloat() / uprightH).coerceIn(0f, 1f)
+                )
+                val lbl = obj.labels.firstOrNull()?.text?.trim()?.takeIf { it.isNotBlank() }
+                LiveBox(rect = rf, label = lbl)
+            }
+            onResult(uprightW, uprightH, boxes)
+        }
+        .addOnFailureListener {
+            // Ignore; keep last boxes.
+        }
+        .addOnCompleteListener {
+            isAnalyzing.set(false)
+            imageProxy.close()
+        }
 }
