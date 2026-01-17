@@ -64,6 +64,7 @@ import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
+import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
@@ -610,8 +611,8 @@ private fun ObjectSelectDialog(
                         Button(
                             onClick = {
                                 if (selectedBoxes.isEmpty()) return@Button
-                                // Avoid any toList() overload ambiguity on some Kotlin/Compose toolchains.
-                                onUseSelection(selectedBoxes.map { it })
+                                // Snapshot the selection at click time.
+                                onUseSelection(selectedBoxes.toList())
                             },
                             enabled = selectedBoxes.isNotEmpty(),
                             modifier = Modifier.weight(1f)
