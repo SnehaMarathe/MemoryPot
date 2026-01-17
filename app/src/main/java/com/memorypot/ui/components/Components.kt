@@ -551,7 +551,10 @@ fun KeywordEditor(
                                     maxLines = 1,
                                     overflow = TextOverflow.Ellipsis,
                                     color = MaterialTheme.colorScheme.onSurfaceVariant,
-                                    modifier = Modifier.padding(start = 2.dp) // extra safety
+                                    // Some glyphs (notably 'm', 'j') can have a negative left bearing on
+                                    // certain OEM fonts and get clipped by the layout bounds.
+                                    // A slightly larger start padding prevents the “missing first letter” look.
+                                    modifier = Modifier.padding(start = 6.dp)
                                 )
                                 Icon(
                                     imageVector = Icons.Default.Close,
@@ -635,7 +638,7 @@ private fun IOSSingleLineField(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 2.dp) // critical: prevents first-glyph clipping on some OEMs
+                    .padding(start = 6.dp) // critical: prevents first-glyph clipping on some OEMs
             )
         }
     }
@@ -671,7 +674,7 @@ private fun IOSMultilineField(
                 textStyle = MaterialTheme.typography.bodyMedium.copy(color = MaterialTheme.colorScheme.onSurface),
                 modifier = Modifier
                     .fillMaxWidth()
-                    .padding(start = 2.dp) // critical: prevents first-glyph clipping
+                    .padding(start = 6.dp) // critical: prevents first-glyph clipping
             )
         }
     }
