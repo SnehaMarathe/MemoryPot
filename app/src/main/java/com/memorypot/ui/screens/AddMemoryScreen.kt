@@ -642,6 +642,8 @@ private fun ObjectSelectDialog(
                 // decoding a 1280px bitmap and clamping.
 
                 // Draw overlays and handle interactions.
+                val primaryColor = MaterialTheme.colorScheme.primary
+                val tertiaryColor = MaterialTheme.colorScheme.tertiary
                 Canvas(
                     modifier = Modifier
                         .fillMaxSize()
@@ -727,12 +729,12 @@ private fun ObjectSelectDialog(
                             val bottom = dy + b.bottom * scale
 
                             drawRect(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                                color = primaryColor.copy(alpha = 0.20f),
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
                             )
                             drawRect(
-                                color = MaterialTheme.colorScheme.primary.copy(alpha = 0.90f),
+                                color = primaryColor.copy(alpha = 0.90f),
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
@@ -746,12 +748,12 @@ private fun ObjectSelectDialog(
                             val right = dx + sel.right * scale
                             val bottom = dy + sel.bottom * scale
                             drawRect(
-                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                                color = tertiaryColor.copy(alpha = 0.28f),
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
                             )
                             drawRect(
-                                color = MaterialTheme.colorScheme.tertiary,
+                                color = tertiaryColor,
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
@@ -767,12 +769,12 @@ private fun ObjectSelectDialog(
                             val right = kotlin.math.max(s.x, e.x)
                             val bottom = kotlin.math.max(s.y, e.y)
                             drawRect(
-                                color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                                color = tertiaryColor.copy(alpha = 0.28f),
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
                             )
                             drawRect(
-                                color = MaterialTheme.colorScheme.tertiary,
+                                color = tertiaryColor,
                                 topLeft = Offset(left, top),
                                 size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                                 style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
@@ -895,6 +897,8 @@ private fun CameraCapture(
         )
 
         // Overlay with live boxes + multi-select.
+        val livePrimaryColor = MaterialTheme.colorScheme.primary
+        val liveTertiaryColor = MaterialTheme.colorScheme.tertiary
         Canvas(
             modifier = Modifier
                 .fillMaxSize()
@@ -934,12 +938,12 @@ private fun CameraCapture(
                     val right = dx + b.rect.right * liveImageW * scale
                     val bottom = dy + b.rect.bottom * liveImageH * scale
                     drawRect(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.20f),
+                        color = livePrimaryColor.copy(alpha = 0.20f),
                         topLeft = Offset(left, top),
                         size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
                     )
                     drawRect(
-                        color = MaterialTheme.colorScheme.primary.copy(alpha = 0.85f),
+                        color = livePrimaryColor.copy(alpha = 0.85f),
                         topLeft = Offset(left, top),
                         size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
@@ -953,12 +957,12 @@ private fun CameraCapture(
                     val right = dx + rf.right * liveImageW * scale
                     val bottom = dy + rf.bottom * liveImageH * scale
                     drawRect(
-                        color = MaterialTheme.colorScheme.tertiary.copy(alpha = 0.28f),
+                        color = liveTertiaryColor.copy(alpha = 0.28f),
                         topLeft = Offset(left, top),
                         size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
                     )
                     drawRect(
-                        color = MaterialTheme.colorScheme.tertiary,
+                        color = liveTertiaryColor,
                         topLeft = Offset(left, top),
                         size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
