@@ -103,6 +103,8 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
+import androidx.compose.runtime.DisposableEffect
+import androidx.compose.runtime.onDispose
 
 private enum class ReflectPage { CLUES, NOTE, PLACE }
 
