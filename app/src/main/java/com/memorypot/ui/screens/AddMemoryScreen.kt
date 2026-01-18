@@ -50,16 +50,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -126,7 +123,8 @@ fun AddMemoryScreen(
     val scope = rememberCoroutineScope()
 
     var capturedPath by remember { mutableStateOf<String?>(null) }
-    var showReflectSheet by remember { mutableStateOf(false) }
+    // Redesigned UI: avoid overlaying form fields on top of the photo.
+    // We render a top photo header and the reflect UI below it (no bottom-sheet overlap).
     var showObjectPicker by remember { mutableStateOf(false) }
 
     // Live-preview object selections (normalized 0..1 rects) carried over to the captured photo.
@@ -139,11 +137,6 @@ fun AddMemoryScreen(
     val locationPermLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { /* repo will read permission at save time */ }
-
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { it != SheetValue.Hidden }
-    )
 
     Scaffold(
         topBar = {
@@ -159,7 +152,6 @@ fun AddMemoryScreen(
                     if (capturedPath == null) onCancel() else {
                         // If already captured, go back to camera (retake) rather than exiting.
                         capturedPath = null
-                        showReflectSheet = false
                         vm.resetForNewCapture()
                     }
                 }) {
@@ -192,18 +184,20 @@ fun AddMemoryScreen(
                         capturedPath = path
                         pendingLiveSelections = liveSelections
                         appliedLiveSelectionsForPath = null
-                        showReflectSheet = true
                     },
                     photoStore = photoStore
                 )
             } else {
-                // Full-bleed photo preview is the emotional anchor.
-                AsyncImage(
-                    model = photoPath,
-                    contentDescription = "Captured photo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                // Redesigned: keep the photo visible without letting inputs overlap it.
+                Column(Modifier.fillMaxSize()) {
+                    AsyncImage(
+                        model = photoPath,
+                        contentDescription = "Captured photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                    )
 
                 // Auto-generate AI keywords once per capture.
                 LaunchedEffect(photoPath) {
@@ -225,24 +219,19 @@ fun AddMemoryScreen(
                         onRequestDetect = { vm.detectObjects(photoPath) },
                         onDismiss = { showObjectPicker = false },
                         onUseSelection = { rects ->
-                            vm.generateKeywordsForRegions(photoPath, rects)
+                            // Replace the clue words with object-focused clues so the user sees
+                            // an immediate, obvious change after selection.
+                            vm.generateKeywordsForRegionsReplace(photoPath, rects)
                             showObjectPicker = false
                         }
                     )
                 }
 
-                if (showReflectSheet) {
-                    ModalBottomSheet(
-                        onDismissRequest = {
-                            // iOS-like: dismissing the sheet returns you to camera (retake)
-                            capturedPath = null
-                            showReflectSheet = false
-                            vm.resetForNewCapture()
-                        },
-                        sheetState = sheetState,
-                        dragHandle = null,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp
+                    // Content below the photo
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
                         ReflectSheetContent(
                             state = state,
@@ -265,7 +254,6 @@ fun AddMemoryScreen(
                             },
                             onRetake = {
                                 capturedPath = null
-                                showReflectSheet = false
                                 vm.resetForNewCapture()
                             },
                             onDoneClick = {
@@ -991,6 +979,24 @@ private fun CameraCapture(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            AnimatedVisibility(
+                visible = liveBoxes.isNotEmpty() && selectedLiveBoxes.isEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        "Tap boxes to select before capture",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             AnimatedVisibility(visible = selectedLiveBoxes.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -1017,10 +1023,10 @@ private fun CameraCapture(
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-								// SnapshotStateList is a live (mutable) list; pass a stable copy.
-								// Use ArrayList(copy) to avoid any extension-resolution weirdness across Kotlin versions.
-								// Pass a stable snapshot copy of the currently selected boxes.
-								onCaptured(file.absolutePath, selectedLiveBoxes.toList())
+									// SnapshotStateList is a live (mutable) list; pass a stable copy.
+									// Also deep-copy RectF values so callers never depend on reference equality.
+									val snapshot = selectedLiveBoxes.map { rf -> RectF(rf) }
+									onCaptured(file.absolutePath, snapshot)
                         }
 
                         override fun onError(exception: ImageCaptureException) {
