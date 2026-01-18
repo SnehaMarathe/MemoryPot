@@ -796,6 +796,10 @@ private fun CameraCapture(
     photoStore: PhotoStore
 ) {
     val context = LocalContext.current
+    // IMPORTANT: bind CameraX to the *real* LifecycleOwner from Compose.
+    // Using (ctx as ComponentActivity) is flaky in Compose because the AndroidView context
+    // can be a ContextThemeWrapper and the cast fails (resulting in no analysis + no boxes).
+    val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val executor: Executor = ContextCompat.getMainExecutor(context)
     val hasCamera = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
@@ -872,6 +876,7 @@ private fun CameraCapture(
                         analyzeFrameForObjects(
                             imageProxy = imageProxy,
                             detector = detector,
+                            mainExecutor = executor,
                             onResult = { w, h, boxes ->
                                 liveImageW = w
                                 liveImageH = h
@@ -887,7 +892,7 @@ private fun CameraCapture(
                     try {
                         cameraProvider.unbindAll()
                         cameraProvider.bindToLifecycle(
-                            (ctx as androidx.activity.ComponentActivity),
+                            lifecycleOwner,
                             CameraSelector.DEFAULT_BACK_CAMERA,
                             preview,
                             capture,
@@ -1032,6 +1037,13 @@ private fun CameraCapture(
             Text("Capture")
         }
     }
+
+    // Avoid leaking threads when this composable leaves composition.
+    DisposableEffect(Unit) {
+        onDispose {
+            runCatching { analysisExecutor.shutdown() }
+        }
+    }
 }
 
 /**
@@ -1043,6 +1055,7 @@ private fun CameraCapture(
 private fun analyzeFrameForObjects(
     imageProxy: ImageProxy,
     detector: ObjectDetector,
+    mainExecutor: Executor,
     onResult: (imageW: Int, imageH: Int, boxes: List<LiveBox>) -> Unit,
     isAnalyzing: AtomicBoolean,
     getLastMs: () -> Long,
@@ -1087,7 +1100,8 @@ private fun analyzeFrameForObjects(
                 val lbl = obj.labels.firstOrNull()?.text?.trim()?.takeIf { it.isNotBlank() }
                 LiveBox(rect = rf, label = lbl)
             }
-            onResult(uprightW, uprightH, boxes)
+            // Push results to the main thread since we're mutating Compose state.
+            mainExecutor.execute { onResult(uprightW, uprightH, boxes) }
         }
         .addOnFailureListener {
             // Ignore; keep last boxes.
