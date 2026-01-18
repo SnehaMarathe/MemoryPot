@@ -61,11 +61,13 @@ import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
 import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
+import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.collectAsState
 import androidx.compose.runtime.getValue
 import androidx.compose.runtime.mutableStateListOf
 import androidx.compose.runtime.mutableStateOf
+import androidx.compose.runtime.DisposableEffectResult
 import androidx.compose.runtime.remember
 import androidx.compose.runtime.rememberCoroutineScope
 import androidx.compose.runtime.setValue
@@ -103,8 +105,6 @@ import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
 import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
-import androidx.compose.runtime.DisposableEffect
-import androidx.compose.runtime.onDispose
 
 private enum class ReflectPage { CLUES, NOTE, PLACE }
 
@@ -1041,9 +1041,13 @@ private fun CameraCapture(
     }
 
     // Avoid leaking threads when this composable leaves composition.
+    // We intentionally avoid using `onDispose {}` to keep compatibility with CI environments
+    // that have had symbol-resolution issues for that extension.
     DisposableEffect(Unit) {
-        onDispose {
-            runCatching { analysisExecutor.shutdown() }
+        return@DisposableEffect object : DisposableEffectResult {
+            override fun dispose() {
+                runCatching { analysisExecutor.shutdown() }
+            }
         }
     }
 }
