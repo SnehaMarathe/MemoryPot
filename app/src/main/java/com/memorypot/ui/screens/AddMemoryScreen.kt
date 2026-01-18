@@ -10,8 +10,6 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.CameraController
-import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -52,16 +50,13 @@ import androidx.compose.material3.ExperimentalMaterial3Api
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
-import androidx.compose.material3.ModalBottomSheet
 import androidx.compose.material3.OutlinedButton
 import androidx.compose.material3.OutlinedTextField
 import androidx.compose.material3.Scaffold
-import androidx.compose.material3.SheetValue
 import androidx.compose.material3.Tab
 import androidx.compose.material3.TabRow
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
-import androidx.compose.material3.rememberModalBottomSheetState
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.DisposableEffect
 import androidx.compose.runtime.LaunchedEffect
@@ -128,7 +123,8 @@ fun AddMemoryScreen(
     val scope = rememberCoroutineScope()
 
     var capturedPath by remember { mutableStateOf<String?>(null) }
-    var showReflectSheet by remember { mutableStateOf(false) }
+    // Redesigned UI: avoid overlaying form fields on top of the photo.
+    // We render a top photo header and the reflect UI below it (no bottom-sheet overlap).
     var showObjectPicker by remember { mutableStateOf(false) }
 
     // Live-preview object selections (normalized 0..1 rects) carried over to the captured photo.
@@ -141,11 +137,6 @@ fun AddMemoryScreen(
     val locationPermLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestMultiplePermissions()
     ) { /* repo will read permission at save time */ }
-
-    val sheetState = rememberModalBottomSheetState(
-        skipPartiallyExpanded = true,
-        confirmValueChange = { it != SheetValue.Hidden }
-    )
 
     Scaffold(
         topBar = {
@@ -161,7 +152,6 @@ fun AddMemoryScreen(
                     if (capturedPath == null) onCancel() else {
                         // If already captured, go back to camera (retake) rather than exiting.
                         capturedPath = null
-                        showReflectSheet = false
                         vm.resetForNewCapture()
                     }
                 }) {
@@ -194,18 +184,20 @@ fun AddMemoryScreen(
                         capturedPath = path
                         pendingLiveSelections = liveSelections
                         appliedLiveSelectionsForPath = null
-                        showReflectSheet = true
                     },
                     photoStore = photoStore
                 )
             } else {
-                // Full-bleed photo preview is the emotional anchor.
-                AsyncImage(
-                    model = photoPath,
-                    contentDescription = "Captured photo",
-                    contentScale = ContentScale.Crop,
-                    modifier = Modifier.fillMaxSize()
-                )
+                // Redesigned: keep the photo visible without letting inputs overlap it.
+                Column(Modifier.fillMaxSize()) {
+                    AsyncImage(
+                        model = photoPath,
+                        contentDescription = "Captured photo",
+                        contentScale = ContentScale.Crop,
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .height(260.dp)
+                    )
 
                 // Auto-generate AI keywords once per capture.
                 LaunchedEffect(photoPath) {
@@ -227,24 +219,19 @@ fun AddMemoryScreen(
                         onRequestDetect = { vm.detectObjects(photoPath) },
                         onDismiss = { showObjectPicker = false },
                         onUseSelection = { rects ->
-                            vm.generateKeywordsForRegions(photoPath, rects)
+                            // Replace the clue words with object-focused clues so the user sees
+                            // an immediate, obvious change after selection.
+                            vm.generateKeywordsForRegionsReplace(photoPath, rects)
                             showObjectPicker = false
                         }
                     )
                 }
 
-                if (showReflectSheet) {
-                    ModalBottomSheet(
-                        onDismissRequest = {
-                            // iOS-like: dismissing the sheet returns you to camera (retake)
-                            capturedPath = null
-                            showReflectSheet = false
-                            vm.resetForNewCapture()
-                        },
-                        sheetState = sheetState,
-                        dragHandle = null,
-                        containerColor = MaterialTheme.colorScheme.surface,
-                        tonalElevation = 0.dp
+                    // Content below the photo
+                    Box(
+                        Modifier
+                            .fillMaxSize()
+                            .background(MaterialTheme.colorScheme.surface)
                     ) {
                         ReflectSheetContent(
                             state = state,
@@ -267,7 +254,6 @@ fun AddMemoryScreen(
                             },
                             onRetake = {
                                 capturedPath = null
-                                showReflectSheet = false
                                 vm.resetForNewCapture()
                             },
                             onDoneClick = {
@@ -805,16 +791,19 @@ private fun CameraCapture(
     // can be a ContextThemeWrapper and the cast fails (resulting in no analysis + no boxes).
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val executor: Executor = ContextCompat.getMainExecutor(context)
-    val hasCamera = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
-    // Use a controller-based approach so ImageAnalysis is reliably bound in Compose.
-    // This avoids silent bind failures (and therefore missing boxes) on some devices/CI.
-    val cameraController = remember(context) {
-        LifecycleCameraController(context).apply {
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
-        }
+    // Runtime permission handling (required on Android 6+).
+    val initialCameraGranted = remember {
+        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
     }
+    var cameraGranted by remember { mutableStateOf(initialCameraGranted) }
+    val cameraPermLauncher = rememberLauncherForActivityResult(
+        androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
+    ) { granted ->
+        cameraGranted = granted
+    }
+
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
 
     // Live preview selector
     // We run on-device ML Kit object detection on a throttled preview stream and let the user
@@ -843,7 +832,7 @@ private fun CameraCapture(
     var lastAnalyzeMs by remember { mutableStateOf(0L) }
 
     Box(Modifier.fillMaxSize()) {
-        if (!hasCamera) {
+        if (!cameraGranted) {
             Column(
                 Modifier
                     .fillMaxSize()
@@ -853,24 +842,76 @@ private fun CameraCapture(
             ) {
                 Text("Camera permission is required to capture a photo.")
                 Spacer(Modifier.height(12.dp))
-                Text("Go to Settings → Apps → Memory Pot → Permissions and enable Camera.")
-                Spacer(Modifier.height(12.dp))
+                OutlinedButton(onClick = { cameraPermLauncher.launch(Manifest.permission.CAMERA) }) {
+                    Text("Allow camera")
+                }
+                Spacer(Modifier.height(10.dp))
+                Text(
+                    "If you previously denied it, you can also enable it in Settings → Apps → Memory Pot → Permissions.",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+                Spacer(Modifier.height(16.dp))
                 Button(onClick = onBack) { Text("Back") }
             }
             return@Box
         }
 
-        // Camera preview view (Controller-based; reliable in Compose)
+        // Camera preview view
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                PreviewView(ctx).apply {
+                val previewView = PreviewView(ctx).apply {
                     // Use FIT_CENTER so our overlay mapping math is stable.
                     scaleType = PreviewView.ScaleType.FIT_CENTER
-                    controller = cameraController
                 }
-            },
-            update = { it.controller = cameraController }
+
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    val capture = ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .build()
+
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+
+                    analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        analyzeFrameForObjects(
+                            imageProxy = imageProxy,
+                            detector = detector,
+                            mainExecutor = executor,
+                            onResult = { w, h, boxes ->
+                                liveImageW = w
+                                liveImageH = h
+                                liveBoxes = boxes
+                            },
+                            isAnalyzing = isAnalyzing,
+                            getLastMs = { lastAnalyzeMs },
+                            setLastMs = { lastAnalyzeMs = it }
+                        )
+                    }
+
+                    imageCapture = capture
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            capture,
+                            analysis
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }, executor)
+
+                previewView
+            }
         )
 
         // Overlay with live boxes + multi-select.
@@ -956,6 +997,24 @@ private fun CameraCapture(
                 .fillMaxWidth(),
             horizontalAlignment = Alignment.CenterHorizontally
         ) {
+            AnimatedVisibility(
+                visible = liveBoxes.isNotEmpty() && selectedLiveBoxes.isEmpty(),
+                enter = fadeIn(),
+                exit = fadeOut()
+            ) {
+                Row(
+                    verticalAlignment = Alignment.CenterVertically,
+                    modifier = Modifier
+                        .clip(RoundedCornerShape(16.dp))
+                        .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.85f))
+                        .padding(horizontal = 12.dp, vertical = 8.dp)
+                ) {
+                    Text(
+                        "Tap boxes to select before capture",
+                        style = MaterialTheme.typography.bodySmall
+                    )
+                }
+            }
             AnimatedVisibility(visible = selectedLiveBoxes.isNotEmpty(), enter = fadeIn(), exit = fadeOut()) {
                 Row(
                     verticalAlignment = Alignment.CenterVertically,
@@ -974,16 +1033,18 @@ private fun CameraCapture(
         // iOS-like: one primary shutter button, no clutter.
         Button(
             onClick = {
+                val capture = imageCapture ?: return@Button
                 val file = photoStore.newPhotoFile()
                 val output = ImageCapture.OutputFileOptions.Builder(file).build()
-                cameraController.takePicture(
+                capture.takePicture(
                     output,
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            // SnapshotStateList is live; pass a stable deep copy of the currently selected boxes.
-                            val snapshot = List(selectedLiveBoxes.size) { i -> RectF(selectedLiveBoxes[i]) }
-                            onCaptured(file.absolutePath, snapshot)
+									// SnapshotStateList is a live (mutable) list; pass a stable copy.
+									// Also deep-copy RectF values so callers never depend on reference equality.
+									val snapshot = selectedLiveBoxes.map { rf -> RectF(rf) }
+									onCaptured(file.absolutePath, snapshot)
                         }
 
                         override fun onError(exception: ImageCaptureException) {
@@ -1003,32 +1064,12 @@ private fun CameraCapture(
         }
     }
 
-    // Bind analysis + capture to lifecycle and clean up properly when leaving composition.
+    // Avoid leaking threads when this composable leaves composition.
     // We intentionally avoid using `onDispose {}` to keep compatibility with CI environments
     // that have had symbol-resolution issues for that extension.
-    DisposableEffect(cameraController, lifecycleOwner) {
-        // Analyzer must be set *before* binding to ensure we start receiving frames immediately.
-        cameraController.setImageAnalysisAnalyzer(analysisExecutor) { imageProxy ->
-            analyzeFrameForObjects(
-                imageProxy = imageProxy,
-                detector = detector,
-                mainExecutor = executor,
-                onResult = { w, h, boxes ->
-                    liveImageW = w
-                    liveImageH = h
-                    liveBoxes = boxes
-                },
-                isAnalyzing = isAnalyzing,
-                getLastMs = { lastAnalyzeMs },
-                setLastMs = { lastAnalyzeMs = it }
-            )
-        }
-        runCatching { cameraController.bindToLifecycle(lifecycleOwner) }
-
+    DisposableEffect(Unit) {
         return@DisposableEffect object : DisposableEffectResult {
             override fun dispose() {
-                runCatching { cameraController.clearImageAnalysisAnalyzer() }
-                runCatching { cameraController.unbind() }
                 runCatching { analysisExecutor.shutdown() }
                 runCatching { detector.close() }
             }
