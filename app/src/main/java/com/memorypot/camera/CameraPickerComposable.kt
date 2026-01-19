@@ -3,6 +3,7 @@ package com.memorypot.camera
 import android.annotation.SuppressLint
 import android.content.Context
 import android.net.Uri
+import android.util.Log
 import androidx.camera.core.CameraSelector
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageCapture
@@ -27,6 +28,7 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Size
 import androidx.compose.ui.graphics.Color
+import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.platform.LocalLifecycleOwner
@@ -40,6 +42,10 @@ import java.io.File
 import java.util.concurrent.ExecutorService
 import java.util.concurrent.Executors
 
+/**
+ * Live CameraX preview with ML Kit object detection in stream mode.
+ * Users can tap to toggle-select multiple objects.
+ */
 @Composable
 fun LiveCameraMultiSelectPicker(
     modifier: Modifier = Modifier,
@@ -50,10 +56,11 @@ fun LiveCameraMultiSelectPicker(
     val lifecycleOwner = LocalLifecycleOwner.current
 
     val boxes by viewModel.boxes.collectAsState()
-    val selectedIds by viewModel.selectedIds.collectAsState()
+    val selected by viewModel.selected.collectAsState()
 
     val previewView = remember {
         PreviewView(context).apply {
+            // Keep consistent with our mapping math (FIT_CENTER).
             scaleType = PreviewView.ScaleType.FIT_CENTER
         }
     }
@@ -78,15 +85,19 @@ fun LiveCameraMultiSelectPicker(
     }
 
     LaunchedEffect(Unit) {
-        bindCamera(
-            context = context,
-            lifecycleOwner = lifecycleOwner,
-            previewView = previewView,
-            detector = detector!!,
-            analysisExecutor = analysisExecutor!!,
-            viewModel = viewModel,
-            onImageCaptureReady = onImageCaptureReady
-        )
+        val det = detector
+        val exec = analysisExecutor
+        if (det != null && exec != null) {
+            bindCamera(
+                context = context,
+                lifecycleOwner = lifecycleOwner,
+                previewView = previewView,
+                detector = det,
+                analysisExecutor = exec,
+                viewModel = viewModel,
+                onImageCaptureReady = onImageCaptureReady
+            )
+        }
     }
 
     Box(
@@ -103,27 +114,27 @@ fun LiveCameraMultiSelectPicker(
             modifier = Modifier.fillMaxSize()
         )
 
-        // Transparent overlay
+        // Overlay with boxes + selection.
         Canvas(modifier = Modifier.fillMaxSize()) {
             // subtle dim to make boxes visible
-            drawRect(Color.Black.copy(alpha = 0.08f))
+            drawRect(color = Color.Black.copy(alpha = 0.06f))
 
             boxes.forEach { b ->
-                val isSel = selectedIds.contains(b.id)
-                val stroke = if (isSel) 6f else 3f
+                val r = b.rect
+                val isSel = selected.contains(b.trackingId)
+                val strokeW = if (isSel) 6f else 3f
                 val color = if (isSel) Color(0xFF00E676) else Color.White
 
-                // stroke rectangle
                 drawRect(
                     color = color,
-                    topLeft = Offset(b.left, b.top),
-                    size = Size((b.right - b.left).coerceAtLeast(0f), (b.bottom - b.top).coerceAtLeast(0f)),
-                    style = androidx.compose.ui.graphics.drawscope.Stroke(width = stroke)
+                    topLeft = Offset(r.left, r.top),
+                    size = Size((r.right - r.left).coerceAtLeast(0f), (r.bottom - r.top).coerceAtLeast(0f)),
+                    style = Stroke(width = strokeW)
                 )
             }
         }
 
-        // touch debug indicator (optional background)
+        // Touch debug indicator (keeps overlay clickable and transparent)
         Box(modifier = Modifier.fillMaxSize().background(Color.Transparent))
     }
 }
@@ -168,42 +179,51 @@ private fun bindCamera(
                     val viewW = previewView.width.toFloat().coerceAtLeast(1f)
                     val viewH = previewView.height.toFloat().coerceAtLeast(1f)
 
-                    // ML Kit boxes are in the upright image coordinate space.
                     val rawW = input.width
                     val rawH = input.height
 
-                    val imgW: Float
-                    val imgH: Float
+                    // After rotation, upright image size becomes:
+                    val imgW: Int
+                    val imgH: Int
                     if (rotation == 90 || rotation == 270) {
-                        imgW = rawH.toFloat()
-                        imgH = rawW.toFloat()
+                        imgW = rawH
+                        imgH = rawW
                     } else {
-                        imgW = rawW.toFloat()
-                        imgH = rawH.toFloat()
+                        imgW = rawW
+                        imgH = rawH
                     }
 
                     // FIT_CENTER mapping
-                    val scale = minOf(viewW / imgW, viewH / imgH)
+                    val scale = minOf(viewW / imgW.toFloat(), viewH / imgH.toFloat())
                     val dx = (viewW - imgW * scale) / 2f
                     val dy = (viewH - imgH * scale) / 2f
 
-                    val mapped = objects.mapNotNull { obj ->
-                        val bb = obj.boundingBox ?: return@mapNotNull null
-                        val id = obj.trackingId ?: (bb.left * 31 + bb.top).hashCode()
-                        val (label, conf) = viewModel.bestLabelForObject(obj)
+                    val mapped = objects.map { obj ->
+                        val bb = obj.boundingBox
+                        val id = obj.trackingId ?: obj.hashCode()
 
-                        val l = bb.left.toFloat() * scale + dx
-                        val t = bb.top.toFloat() * scale + dy
-                        val r = bb.right.toFloat() * scale + dx
-                        val b = bb.bottom.toFloat() * scale + dy
+                        val label = obj.labels.maxByOrNull { it.confidence }?.text
+                        val conf = obj.labels.maxByOrNull { it.confidence }?.confidence
 
-                        DetectedBox(id = id, left = l, top = t, right = r, bottom = b, label = label, confidence = conf)
+                        val rectView = android.graphics.RectF(
+                            bb.left.toFloat() * scale + dx,
+                            bb.top.toFloat() * scale + dy,
+                            bb.right.toFloat() * scale + dx,
+                            bb.bottom.toFloat() * scale + dy
+                        )
+
+                        DetectedBox(
+                            trackingId = id,
+                            rect = rectView,
+                            label = label,
+                            confidence = conf
+                        )
                     }
 
-                    viewModel.updateBoxes(mapped)
+                    viewModel.updateDetections(mapped)
                 }
-                .addOnFailureListener {
-                    // swallow; analyzer is best-effort
+                .addOnFailureListener { e ->
+                    Log.w("LivePicker", "ML Kit detection failed", e)
                 }
                 .addOnCompleteListener {
                     imageProxy.close()
@@ -220,8 +240,8 @@ private fun bindCamera(
                 analysis
             )
             onImageCaptureReady(imageCapture)
-        } catch (_: Exception) {
-            // no-op
+        } catch (e: Exception) {
+            Log.e("LivePicker", "Camera bind failed", e)
         }
     }, ContextCompat.getMainExecutor(context))
 }

@@ -1,16 +1,14 @@
 package com.memorypot.camera
 
-import android.content.Context
 import android.graphics.Rect
 import android.graphics.RectF
 import android.util.Size
 import androidx.camera.core.ImageAnalysis
 import androidx.camera.core.ImageProxy
 import com.google.mlkit.vision.common.InputImage
-import com.google.mlkit.vision.objects.DetectedObject
 import com.google.mlkit.vision.objects.ObjectDetector
-import com.google.mlkit.vision.objects.ObjectDetectorOptions
 import com.google.mlkit.vision.objects.ObjectDetection
+import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 import java.util.concurrent.atomic.AtomicBoolean
 
 /**
@@ -18,7 +16,6 @@ import java.util.concurrent.atomic.AtomicBoolean
  * mapped boxes in PreviewView coordinates + normalized boxes for persistence.
  */
 class LiveObjectPicker(
-    private val context: Context,
     private val getPreviewSizePx: () -> Size, // PreviewView size in px
     private val onResults: (viewBoxes: List<DetectedObjectBox>, normalizedBoxes: List<NormalizedBox>) -> Unit
 ) : ImageAnalysis.Analyzer {
