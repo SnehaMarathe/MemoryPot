@@ -7,7 +7,7 @@ import androidx.room.RoomDatabase
 
 @Database(
     entities = [MemoryEntity::class],
-    version = 2,
+    version = 3,
     exportSchema = true
 )
 abstract class MemoryDatabase : RoomDatabase() {

@@ -98,6 +98,12 @@ import kotlin.math.min
 import java.util.concurrent.Executors
 import java.util.concurrent.atomic.AtomicBoolean
 import android.graphics.RectF
+import android.app.Activity
+import android.content.ContextWrapper
+import android.content.Intent
+import android.net.Uri
+import android.provider.Settings
+import androidx.core.app.ActivityCompat
 import com.google.mlkit.vision.common.InputImage
 import com.google.mlkit.vision.objects.ObjectDetection
 import com.google.mlkit.vision.objects.ObjectDetector
@@ -185,6 +191,10 @@ fun AddMemoryScreen(
                         pendingLiveSelections = liveSelections
                         appliedLiveSelectionsForPath = null
                     },
+                    onSaveSubmit = { path, liveSelections ->
+                        // Fast path: capture + persist in Room immediately.
+                        vm.save(path, liveSelections, onDone)
+                    },
                     photoStore = photoStore
                 )
             } else {
@@ -257,7 +267,7 @@ fun AddMemoryScreen(
                                 vm.resetForNewCapture()
                             },
                             onDoneClick = {
-                                vm.save(photoPath, onDone)
+                                vm.save(photoPath, pendingLiveSelections, onDone)
                             }
                         )
                     }
@@ -783,6 +793,7 @@ private fun ObjectSelectDialog(
 private fun CameraCapture(
     onBack: () -> Unit,
     onCaptured: (String, List<RectF>) -> Unit,
+    onSaveSubmit: (String, List<RectF>) -> Unit,
     photoStore: PhotoStore
 ) {
     val context = LocalContext.current
@@ -792,15 +803,16 @@ private fun CameraCapture(
     val lifecycleOwner = androidx.lifecycle.compose.LocalLifecycleOwner.current
     val executor: Executor = ContextCompat.getMainExecutor(context)
 
-    // Runtime permission handling (required on Android 6+).
-    val initialCameraGranted = remember {
-        ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+    // Runtime permission gate (prevents silent failure on some OEM builds).
+    var hasCamera by remember {
+        mutableStateOf(
+            ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
+        )
     }
-    var cameraGranted by remember { mutableStateOf(initialCameraGranted) }
     val cameraPermLauncher = rememberLauncherForActivityResult(
         androidx.activity.result.contract.ActivityResultContracts.RequestPermission()
     ) { granted ->
-        cameraGranted = granted
+        hasCamera = granted
     }
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
@@ -832,7 +844,11 @@ private fun CameraCapture(
     var lastAnalyzeMs by remember { mutableStateOf(0L) }
 
     Box(Modifier.fillMaxSize()) {
-        if (!cameraGranted) {
+        if (!hasCamera) {
+            val activity = context.findActivity()
+            val showRationale = activity?.let {
+                ActivityCompat.shouldShowRequestPermissionRationale(it, Manifest.permission.CAMERA)
+            } ?: true
             Column(
                 Modifier
                     .fillMaxSize()
@@ -842,17 +858,32 @@ private fun CameraCapture(
             ) {
                 Text("Camera permission is required to capture a photo.")
                 Spacer(Modifier.height(12.dp))
-                OutlinedButton(onClick = { cameraPermLauncher.launch(Manifest.permission.CAMERA) }) {
-                    Text("Allow camera")
-                }
-                Spacer(Modifier.height(10.dp))
                 Text(
-                    "If you previously denied it, you can also enable it in Settings → Apps → Memory Pot → Permissions.",
-                    style = MaterialTheme.typography.bodySmall,
-                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                    if (showRationale) {
+                        "Tap below to grant permission."
+                    } else {
+                        "Permission was denied. Enable Camera in system settings."
+                    }
                 )
-                Spacer(Modifier.height(16.dp))
-                Button(onClick = onBack) { Text("Back") }
+                Spacer(Modifier.height(12.dp))
+                Row(horizontalArrangement = Arrangement.spacedBy(12.dp)) {
+                    if (showRationale) {
+                        Button(onClick = { cameraPermLauncher.launch(Manifest.permission.CAMERA) }) {
+                            Text("Grant Camera")
+                        }
+                    } else {
+                        OutlinedButton(
+                            onClick = {
+                                val intent = Intent(
+                                    Settings.ACTION_APPLICATION_DETAILS_SETTINGS,
+                                    Uri.fromParts("package", context.packageName, null)
+                                )
+                                context.startActivity(intent)
+                            }
+                        ) { Text("Open Settings") }
+                    }
+                    OutlinedButton(onClick = onBack) { Text("Back") }
+                }
             }
             return@Box
         }
@@ -1030,37 +1061,56 @@ private fun CameraCapture(
             }
         }
 
-        // iOS-like: one primary shutter button, no clutter.
-        Button(
-            onClick = {
-                val capture = imageCapture ?: return@Button
-                val file = photoStore.newPhotoFile()
-                val output = ImageCapture.OutputFileOptions.Builder(file).build()
-                capture.takePicture(
-                    output,
-                    executor,
-                    object : ImageCapture.OnImageSavedCallback {
-                        override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-									// SnapshotStateList is a live (mutable) list; pass a stable copy.
-									// Also deep-copy RectF values so callers never depend on reference equality.
-									val snapshot = selectedLiveBoxes.map { rf -> RectF(rf) }
-									onCaptured(file.absolutePath, snapshot)
-                        }
-
-                        override fun onError(exception: ImageCaptureException) {
-                            runCatching { file.delete() }
-                        }
+        fun capturePhoto(onSaved: (path: String, selections: List<RectF>) -> Unit) {
+            val capture = imageCapture ?: return
+            val file = photoStore.newPhotoFile()
+            val output = ImageCapture.OutputFileOptions.Builder(file).build()
+            capture.takePicture(
+                output,
+                executor,
+                object : ImageCapture.OnImageSavedCallback {
+                    override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
+                        // SnapshotStateList is a live (mutable) list; pass a stable copy.
+                        // Also deep-copy RectF values so callers never depend on reference equality.
+                        val snapshot = selectedLiveBoxes.map { rf -> RectF(rf) }
+                        onSaved(file.absolutePath, snapshot)
                     }
-                )
-            },
+
+                    override fun onError(exception: ImageCaptureException) {
+                        runCatching { file.delete() }
+                    }
+                }
+            )
+        }
+
+        // Bottom actions: Capture-to-edit OR one-tap Save & Submit.
+        Row(
             modifier = Modifier
                 .align(Alignment.BottomCenter)
-                .padding(bottom = 28.dp)
-                .clip(RoundedCornerShape(28.dp))
+                .padding(horizontal = 16.dp)
+                .padding(bottom = 24.dp)
+                .fillMaxWidth(),
+            horizontalArrangement = Arrangement.spacedBy(12.dp)
         ) {
-            Icon(Icons.Default.CameraAlt, contentDescription = "Capture")
-            Spacer(Modifier.size(8.dp))
-            Text("Capture")
+            OutlinedButton(
+                onClick = { capturePhoto(onCaptured) },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+            ) {
+                Icon(Icons.Default.CameraAlt, contentDescription = "Capture")
+                Spacer(Modifier.size(8.dp))
+                Text("Capture")
+            }
+
+            Button(
+                onClick = { capturePhoto(onSaveSubmit) },
+                modifier = Modifier
+                    .weight(1f)
+                    .height(56.dp)
+            ) {
+                Text("Save & Submit")
+            }
         }
     }
 
@@ -1071,7 +1121,6 @@ private fun CameraCapture(
         return@DisposableEffect object : DisposableEffectResult {
             override fun dispose() {
                 runCatching { analysisExecutor.shutdown() }
-                runCatching { detector.close() }
             }
         }
     }
@@ -1141,4 +1190,13 @@ private fun analyzeFrameForObjects(
             isAnalyzing.set(false)
             imageProxy.close()
         }
+}
+
+private fun android.content.Context.findActivity(): Activity? {
+    var ctx = this
+    while (ctx is ContextWrapper) {
+        if (ctx is Activity) return ctx
+        ctx = ctx.baseContext
+    }
+    return null
 }

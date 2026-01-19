@@ -280,7 +280,7 @@ class AddMemoryViewModel(
         _state.value = _state.value.copy(keywords = merged.joinToString(", "))
     }
 
-    fun save(photoPath: String, onDone: (String) -> Unit) {
+    fun save(photoPath: String, selectedBoxesNormalized: List<RectF> = emptyList(), onDone: (String) -> Unit) {
         val s = _state.value
         _state.value = s.copy(isSaving = true, error = null)
         viewModelScope.launch {
@@ -290,7 +290,8 @@ class AddMemoryViewModel(
                     note = s.note,
                     placeTextUser = s.placeText,
                     keywordsUser = s.keywords,
-                    photoPath = photoPath
+                    photoPath = photoPath,
+                    selectedBoxesNormalized = selectedBoxesNormalized
                 )
                 _state.value = _state.value.copy(isSaving = false)
                 onDone(id)

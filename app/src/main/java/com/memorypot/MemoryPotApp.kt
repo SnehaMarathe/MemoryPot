@@ -1,8 +1,14 @@
 package com.memorypot
 
 import android.app.Application
-import com.memorypot.data.AppDatabase
+import com.memorypot.di.AppContainer
 
 class MemoryPotApp : Application() {
-    val db: AppDatabase by lazy { AppDatabase.get(this) }
+    lateinit var container: AppContainer
+        private set
+
+    override fun onCreate() {
+        super.onCreate()
+        container = AppContainer(this)
+    }
 }
