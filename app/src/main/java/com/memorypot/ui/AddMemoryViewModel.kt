@@ -25,10 +25,6 @@ data class AddState(
     val error: String? = null
 )
 
-/**
- * NOTE: This ViewModel intentionally does not import or reference Room/database types directly.
- * It only talks to [MemoryRepository].
- */
 class AddMemoryViewModel(
     private val repo: MemoryRepository,
     private val ai: AiKeywordHelper
@@ -44,8 +40,7 @@ class AddMemoryViewModel(
     fun updateKeywordPrompt(v: String) { _state.value = _state.value.copy(keywordPrompt = v) }
 
     fun resetForNewCapture() {
-        val s = _state.value
-        _state.value = s.copy(
+        _state.value = _state.value.copy(
             keywords = "",
             keywordPrompt = "",
             isGeneratingKeywords = false,
@@ -58,9 +53,8 @@ class AddMemoryViewModel(
     }
 
     fun generateKeywords(photoPath: String) {
-        val s = _state.value
-        if (s.isGeneratingKeywords) return
-        _state.value = s.copy(isGeneratingKeywords = true)
+        if (_state.value.isGeneratingKeywords) return
+        _state.value = _state.value.copy(isGeneratingKeywords = true, error = null)
         viewModelScope.launch {
             try {
                 val suggested = ai.suggestKeywords(photoPath)
@@ -69,7 +63,7 @@ class AddMemoryViewModel(
                 _state.value = _state.value.copy(
                     keywords = if (_state.value.keywords.isBlank()) text else _state.value.keywords,
                     isGeneratingKeywords = false,
-                    error = if (suggested.isEmpty()) "No AI keywords detected for this photo (try adding your own below)." else null
+                    error = if (suggested.isEmpty()) "No AI keywords detected for this photo." else null
                 )
             } catch (t: Throwable) {
                 _state.value = _state.value.copy(
@@ -81,9 +75,8 @@ class AddMemoryViewModel(
     }
 
     fun detectObjects(photoPath: String) {
-        val s = _state.value
-        if (s.isDetectingObjects) return
-        _state.value = s.copy(isDetectingObjects = true, error = null)
+        if (_state.value.isDetectingObjects) return
+        _state.value = _state.value.copy(isDetectingObjects = true, error = null)
         viewModelScope.launch {
             try {
                 val res = ai.detectObjects(photoPath)
@@ -104,16 +97,14 @@ class AddMemoryViewModel(
     }
 
     fun generateKeywordsForRegion(photoPath: String, region: Rect) {
-        val s = _state.value
-        if (s.isGeneratingKeywords) return
-        _state.value = s.copy(isGeneratingKeywords = true, error = null)
+        if (_state.value.isGeneratingKeywords) return
+        _state.value = _state.value.copy(isGeneratingKeywords = true, error = null)
         viewModelScope.launch {
             try {
                 val suggested = ai.suggestKeywordsForRegion(photoPath, region)
                 val merged = ai.mergePromptKeywords(suggested, _state.value.keywordPrompt)
-                val text = merged.joinToString(", ")
                 _state.value = _state.value.copy(
-                    keywords = text,
+                    keywords = merged.joinToString(", "),
                     isGeneratingKeywords = false,
                     error = if (suggested.isEmpty()) "No AI keywords detected for the selected region." else null
                 )
@@ -126,30 +117,22 @@ class AddMemoryViewModel(
         }
     }
 
-    /**
-     * Save a captured photo + selection metadata.
-     *
-     * @param selectedBoxesNormalized List of RectF in 0..1 normalized coordinates, relative to the saved image.
-     */
     fun save(
         photoPath: String,
-        selectedBoxesNormalized: List<RectF>,
+        selectedBoxesNormalized: List<RectF> = emptyList(),
         onDone: (String) -> Unit = {},
         onError: (String) -> Unit = {}
     ) {
-        val s = _state.value
-        if (s.isSaving) return
-        _state.value = s.copy(isSaving = true, error = null)
+        if (_state.value.isSaving) return
+        _state.value = _state.value.copy(isSaving = true, error = null)
         viewModelScope.launch {
             try {
                 val id = repo.createMemory(
                     label = _state.value.label,
                     note = _state.value.note,
-                    placeText = _state.value.placeText,
-                    photoPath = photoPath,
-                    keywordsCsv = _state.value.keywords,
-                    keywordPrompt = _state.value.keywordPrompt,
-                    selectedBoxesNormalized = selectedBoxesNormalized
+                    placeTextUser = _state.value.placeText,
+                    keywordsUser = _state.value.keywords,
+                    photoPath = photoPath
                 )
                 _state.value = _state.value.copy(isSaving = false)
                 onDone(id)
