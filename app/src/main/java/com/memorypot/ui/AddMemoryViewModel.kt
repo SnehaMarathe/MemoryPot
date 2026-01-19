@@ -1,118 +1,163 @@
 package com.memorypot.ui
 
-import android.app.Application
-import android.content.Context
-import android.util.Log
-import androidx.camera.core.ImageCapture
-import androidx.camera.core.ImageCaptureException
-import androidx.lifecycle.AndroidViewModel
+import android.graphics.Rect
+import android.graphics.RectF
+import androidx.lifecycle.ViewModel
 import androidx.lifecycle.viewModelScope
-import com.memorypot.MemoryPotApp
-import com.memorypot.camera.DetectedObjectBox
-import com.memorypot.camera.NormalizedBox
-import com.memorypot.data.MemoryEntity
+import com.memorypot.data.repo.AiKeywordHelper
+import com.memorypot.data.repo.MemoryRepository
 import kotlinx.coroutines.flow.MutableStateFlow
 import kotlinx.coroutines.flow.StateFlow
-import kotlinx.coroutines.flow.asStateFlow
-import kotlinx.coroutines.flow.update
 import kotlinx.coroutines.launch
-import org.json.JSONArray
-import org.json.JSONObject
-import java.io.File
-import java.text.SimpleDateFormat
-import java.util.Date
-import java.util.Locale
 
-data class PickerState(
-    val viewBoxes: List<DetectedObjectBox> = emptyList(),
-    val normalizedBoxes: List<NormalizedBox> = emptyList(),
-    val selectedIds: Set<Int> = emptySet()
+data class AddState(
+    val label: String = "",
+    val note: String = "",
+    val placeText: String = "",
+    val keywords: String = "",
+    val keywordPrompt: String = "",
+    val isGeneratingKeywords: Boolean = false,
+    val isDetectingObjects: Boolean = false,
+    val detectedObjects: List<AiKeywordHelper.DetectedRegion> = emptyList(),
+    val detectedBitmapWidth: Int = 0,
+    val detectedBitmapHeight: Int = 0,
+    val isSaving: Boolean = false,
+    val error: String? = null
 )
 
-class AddMemoryViewModel(app: Application) : AndroidViewModel(app) {
-    private val dao = (app as MemoryPotApp).db.memories()
+/**
+ * NOTE: This ViewModel intentionally does not import or reference Room/database types directly.
+ * It only talks to [MemoryRepository].
+ */
+class AddMemoryViewModel(
+    private val repo: MemoryRepository,
+    private val ai: AiKeywordHelper
+) : ViewModel() {
 
-    private val _pickerState = MutableStateFlow(PickerState())
-    val pickerState: StateFlow<PickerState> = _pickerState.asStateFlow()
+    private val _state = MutableStateFlow(AddState())
+    val state: StateFlow<AddState> = _state
 
-    fun updateDetections(viewBoxes: List<DetectedObjectBox>, normalizedBoxes: List<NormalizedBox>) {
-        _pickerState.update { it.copy(viewBoxes = viewBoxes, normalizedBoxes = normalizedBoxes) }
+    fun updateLabel(v: String) { _state.value = _state.value.copy(label = v) }
+    fun updateNote(v: String) { _state.value = _state.value.copy(note = v) }
+    fun updatePlace(v: String) { _state.value = _state.value.copy(placeText = v) }
+    fun updateKeywords(v: String) { _state.value = _state.value.copy(keywords = v) }
+    fun updateKeywordPrompt(v: String) { _state.value = _state.value.copy(keywordPrompt = v) }
+
+    fun resetForNewCapture() {
+        val s = _state.value
+        _state.value = s.copy(
+            keywords = "",
+            keywordPrompt = "",
+            isGeneratingKeywords = false,
+            isDetectingObjects = false,
+            detectedObjects = emptyList(),
+            detectedBitmapWidth = 0,
+            detectedBitmapHeight = 0,
+            error = null
+        )
     }
 
-    fun toggleSelection(id: Int) {
-        _pickerState.update {
-            val next = it.selectedIds.toMutableSet()
-            if (next.contains(id)) next.remove(id) else next.add(id)
-            it.copy(selectedIds = next)
+    fun generateKeywords(photoPath: String) {
+        val s = _state.value
+        if (s.isGeneratingKeywords) return
+        _state.value = s.copy(isGeneratingKeywords = true)
+        viewModelScope.launch {
+            try {
+                val suggested = ai.suggestKeywords(photoPath)
+                val merged = ai.mergePromptKeywords(suggested, _state.value.keywordPrompt)
+                val text = merged.joinToString(", ")
+                _state.value = _state.value.copy(
+                    keywords = if (_state.value.keywords.isBlank()) text else _state.value.keywords,
+                    isGeneratingKeywords = false,
+                    error = if (suggested.isEmpty()) "No AI keywords detected for this photo (try adding your own below)." else null
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(
+                    isGeneratingKeywords = false,
+                    error = t.message ?: "Failed to generate AI keywords"
+                )
+            }
         }
     }
 
-    fun clearSelection() {
-        _pickerState.update { it.copy(selectedIds = emptySet()) }
-    }
-
-    fun selectedCount(): Int = _pickerState.value.selectedIds.size
-
-    fun saveMemory(
-        label: String,
-        note: String,
-        placeText: String,
-        imageCapture: ImageCapture,
-        onDone: (success: Boolean, error: String?) -> Unit
-    ) {
-        val context = getApplication<Application>()
-        val photosDir = File(context.filesDir, "photos").apply { mkdirs() }
-        val name = SimpleDateFormat("yyyyMMdd_HHmmss", Locale.US).format(Date()) + ".jpg"
-        val outFile = File(photosDir, name)
-
-        val selected = _pickerState.value.normalizedBoxes.filter { _pickerState.value.selectedIds.contains(it.trackingId) }
-        val selectedJson = JSONArray().apply {
-            for (b in selected) {
-                put(
-                    JSONObject().apply {
-                        put("id", b.trackingId)
-                        put("l", b.left)
-                        put("t", b.top)
-                        put("r", b.right)
-                        put("b", b.bottom)
-                        if (b.label != null) put("label", b.label)
-                        if (b.confidence != null) put("conf", b.confidence)
-                    }
+    fun detectObjects(photoPath: String) {
+        val s = _state.value
+        if (s.isDetectingObjects) return
+        _state.value = s.copy(isDetectingObjects = true, error = null)
+        viewModelScope.launch {
+            try {
+                val res = ai.detectObjects(photoPath)
+                _state.value = _state.value.copy(
+                    isDetectingObjects = false,
+                    detectedObjects = res.regions,
+                    detectedBitmapWidth = res.bitmapWidth,
+                    detectedBitmapHeight = res.bitmapHeight,
+                    error = if (res.regions.isEmpty()) "No objects detected." else null
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(
+                    isDetectingObjects = false,
+                    error = t.message ?: "Failed to detect objects"
                 )
             }
-        }.toString()
+        }
+    }
 
-        val output = ImageCapture.OutputFileOptions.Builder(outFile).build()
-        imageCapture.takePicture(
-            output,
-            androidx.core.content.ContextCompat.getMainExecutor(context),
-            object : ImageCapture.OnImageSavedCallback {
-                override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                    viewModelScope.launch {
-                        try {
-                            dao.insert(
-                                MemoryEntity(
-                                    label = label,
-                                    note = note,
-                                    placeText = placeText,
-                                    timestampMs = System.currentTimeMillis(),
-                                    photoPath = outFile.absolutePath,
-                                    selectedObjectsJson = selectedJson
-                                )
-                            )
-                            onDone(true, null)
-                        } catch (e: Throwable) {
-                            Log.e("AddMemoryViewModel", "DB insert failed", e)
-                            onDone(false, "Failed to save: ${e.message}")
-                        }
-                    }
-                }
-
-                override fun onError(exception: ImageCaptureException) {
-                    Log.e("AddMemoryViewModel", "Capture failed", exception)
-                    onDone(false, "Capture failed: ${exception.message}")
-                }
+    fun generateKeywordsForRegion(photoPath: String, region: Rect) {
+        val s = _state.value
+        if (s.isGeneratingKeywords) return
+        _state.value = s.copy(isGeneratingKeywords = true, error = null)
+        viewModelScope.launch {
+            try {
+                val suggested = ai.suggestKeywordsForRegion(photoPath, region)
+                val merged = ai.mergePromptKeywords(suggested, _state.value.keywordPrompt)
+                val text = merged.joinToString(", ")
+                _state.value = _state.value.copy(
+                    keywords = text,
+                    isGeneratingKeywords = false,
+                    error = if (suggested.isEmpty()) "No AI keywords detected for the selected region." else null
+                )
+            } catch (t: Throwable) {
+                _state.value = _state.value.copy(
+                    isGeneratingKeywords = false,
+                    error = t.message ?: "Failed to generate region keywords"
+                )
             }
-        )
+        }
+    }
+
+    /**
+     * Save a captured photo + selection metadata.
+     *
+     * @param selectedBoxesNormalized List of RectF in 0..1 normalized coordinates, relative to the saved image.
+     */
+    fun save(
+        photoPath: String,
+        selectedBoxesNormalized: List<RectF>,
+        onDone: (String) -> Unit = {},
+        onError: (String) -> Unit = {}
+    ) {
+        val s = _state.value
+        if (s.isSaving) return
+        _state.value = s.copy(isSaving = true, error = null)
+        viewModelScope.launch {
+            try {
+                val id = repo.createMemory(
+                    label = _state.value.label,
+                    note = _state.value.note,
+                    placeText = _state.value.placeText,
+                    photoPath = photoPath,
+                    keywordsCsv = _state.value.keywords,
+                    keywordPrompt = _state.value.keywordPrompt,
+                    selectedBoxesNormalized = selectedBoxesNormalized
+                )
+                _state.value = _state.value.copy(isSaving = false)
+                onDone(id)
+            } catch (t: Throwable) {
+                val msg = t.message ?: "Failed to save"
+                _state.value = _state.value.copy(isSaving = false, error = msg)
+                onError(msg)
+            }
+        }
     }
 }
