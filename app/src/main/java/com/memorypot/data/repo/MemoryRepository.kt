@@ -5,7 +5,6 @@ import com.memorypot.data.db.MemoryEntity
 import com.memorypot.data.db.MemoryListItem
 import com.memorypot.data.db.PlaceCount
 import com.memorypot.data.settings.SettingsDataStore
-import android.graphics.RectF
 import kotlinx.coroutines.flow.Flow
 import kotlinx.coroutines.flow.first
 import java.util.UUID
@@ -38,8 +37,7 @@ class MemoryRepository(
         note: String,
         placeTextUser: String,
         keywordsUser: String,
-        photoPath: String,
-        selectedBoxesNormalized: List<RectF> = emptyList()
+        photoPath: String
     ): String {
         val now = System.currentTimeMillis()
 
@@ -63,9 +61,6 @@ class MemoryRepository(
             placeText = finalPlace,
             keywords = keywordsUser.trim(),
             photoPath = photoPath,
-            selectedBoxesJson = selectedBoxesNormalized
-                .takeIf { it.isNotEmpty() }
-                ?.let { SelectedBoxesJson.encode(it) },
             createdAt = now,
             isArchived = false,
             latitude = lat,

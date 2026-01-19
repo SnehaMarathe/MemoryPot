@@ -21,11 +21,6 @@ data class MemoryEntity(
     /** Comma-separated keywords (AI suggested + user edited). */
     val keywords: String,
     val photoPath: String,
-    /**
-     * Normalized (0..1) object selection boxes captured at the time of taking the photo.
-     * Stored as JSON so it can be used later for re-cropping, search, exports, etc.
-     */
-    val selectedBoxesJson: String?,
     val createdAt: Long,
     val isArchived: Boolean,
     val latitude: Double?,
