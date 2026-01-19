@@ -23,11 +23,6 @@ import androidx.compose.ui.platform.LocalContext
 import androidx.compose.ui.unit.dp
 import androidx.core.content.ContextCompat
 import androidx.core.content.PermissionChecker
-import androidx.navigation.NavType
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
-import androidx.navigation.navArgument
 
 @Composable
 fun AppRoot() {
@@ -48,6 +43,8 @@ fun AppRoot() {
             onRequest = { launcher.launch(Manifest.permission.CAMERA) }
         )
     } else {
+        // Delegate to the app's real navigation graph.
+        // (There is also a com.memorypot.ui.AppNav wrapper for backwards compatibility.)
         AppNav()
     }
 }
@@ -76,20 +73,4 @@ private fun hasPermission(context: Context, permission: String): Boolean {
     return ContextCompat.checkSelfPermission(context, permission) == PermissionChecker.PERMISSION_GRANTED
 }
 
-@Composable
-private fun AppNav() {
-    val nav = rememberNavController()
 
-    NavHost(navController = nav, startDestination = "home") {
-        composable("home") {
-            HomeScreen(
-                onAdd = { nav.navigate("add") }
-            )
-        }
-        composable("add") {
-            AddMemoryScreen(
-                onDone = { nav.popBackStack() }
-            )
-        }
-    }
-}
