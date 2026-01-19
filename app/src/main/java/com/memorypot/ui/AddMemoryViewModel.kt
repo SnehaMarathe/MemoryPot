@@ -132,7 +132,8 @@ class AddMemoryViewModel(
                     note = _state.value.note,
                     placeTextUser = _state.value.placeText,
                     keywordsUser = _state.value.keywords,
-                    photoPath = photoPath
+                    photoPath = photoPath,
+                    selectedBoxesNormalized = selectedBoxesNormalized
                 )
                 _state.value = _state.value.copy(isSaving = false)
                 onDone(id)
