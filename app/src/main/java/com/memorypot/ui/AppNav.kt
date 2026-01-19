@@ -1,25 +1,16 @@
 package com.memorypot.ui
 
 import androidx.compose.runtime.Composable
-import androidx.navigation.compose.NavHost
-import androidx.navigation.compose.composable
-import androidx.navigation.compose.rememberNavController
+import com.memorypot.ui.navigation.AppNav as NewAppNav
 
+/**
+ * Backwards-compatible entry point.
+ *
+ * Some older builds referenced `com.memorypot.ui.AppNav`. The current navigation graph lives in
+ * `com.memorypot.ui.navigation.AppNav`. This wrapper keeps both working and avoids stale
+ * references (e.g. passing now-removed parameters like `hasCameraPermission`).
+ */
 @Composable
-fun AppNav(hasCameraPermission: Boolean) {
-    val nav = rememberNavController()
-
-    NavHost(navController = nav, startDestination = "home") {
-        composable("home") {
-            HomeScreen(
-                onAdd = { nav.navigate("add") }
-            )
-        }
-        composable("add") {
-            AddMemoryScreen(
-                hasCameraPermission = hasCameraPermission,
-                onDone = { nav.popBackStack() }
-            )
-        }
-    }
+fun AppNav() {
+    NewAppNav()
 }

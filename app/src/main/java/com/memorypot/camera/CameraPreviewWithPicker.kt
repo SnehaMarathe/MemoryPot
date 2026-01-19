@@ -101,7 +101,6 @@ private fun bindCamera(
         .build()
 
     val picker = LiveObjectPicker(
-        context = context,
         getPreviewSizePx = { Size(previewView.width.coerceAtLeast(1), previewView.height.coerceAtLeast(1)) },
         onResults = onPickerResults
     )
