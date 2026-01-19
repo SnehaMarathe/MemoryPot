@@ -29,6 +29,7 @@ import androidx.compose.runtime.setValue
 import androidx.compose.ui.Modifier
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.graphics.PathEffect
+import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.graphics.drawscope.Stroke
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.unit.dp
@@ -93,6 +94,7 @@ fun AddMemoryScreen(
                         val pathEffect = if (selected) null else PathEffect.dashPathEffect(floatArrayOf(10f, 10f), 0f)
 
                         drawRect(
+                            color = if (selected) Color(0xFF00C853) else Color(0xFF00B0FF),
                             topLeft = Offset(b.rect.left, b.rect.top),
                             size = androidx.compose.ui.geometry.Size(b.rect.width(), b.rect.height()),
                             style = Stroke(width = strokeWidth, pathEffect = pathEffect)
