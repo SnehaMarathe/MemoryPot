@@ -4,7 +4,6 @@ import android.content.Context
 import android.graphics.Bitmap
 import android.graphics.BitmapFactory
 import android.graphics.Matrix
-import android.graphics.RectF
 import android.util.Log
 import androidx.exifinterface.media.ExifInterface
 import com.google.mlkit.vision.common.InputImage
@@ -31,29 +30,9 @@ import java.util.Locale
  */
 class AiKeywordHelper(private val context: Context) {
 
-    /**
-     * Public representation of a detected object region.
-     *
-     * Coordinates are in the upright bitmap space produced by [decodeScaledBitmapUpright] (maxDim=1280).
-     */
-    data class DetectedRegion(
-        val id: Int,
-        val boundingBox: android.graphics.Rect,
-        val labels: List<String> = emptyList()
-    )
-
-    /**
-     * Result for object detection on a photo, including the bitmap dimensions used.
-     */
-    data class DetectedObjectsResult(
-        val bitmapWidth: Int,
-        val bitmapHeight: Int,
-        val regions: List<DetectedRegion>
-    )
-
     // We keep track of where a keyword came from so we can rank more precisely.
     // Users primarily expect concrete nouns (objects), so we prefer those.
-    private enum class Source { OBJECT_DIRECT, OBJECT_CROP, USER_REGION, SCENE, OCR }
+    private enum class Source { OBJECT_DIRECT, OBJECT_CROP, SCENE, OCR }
 
     private data class Candidate(
         val token: String,
@@ -85,145 +64,6 @@ class AiKeywordHelper(private val context: Context) {
     private val textRecognizer: TextRecognizer by lazy {
         // Latin options are broadly suitable and keep it on-device.
         TextRecognition.getClient(TextRecognizerOptions.DEFAULT_OPTIONS)
-    }
-
-    /**
-     * Detect multiple objects in the photo and return their bounding boxes.
-     * This is used by the post-capture "tap-to-select" flow so users can choose
-     * the specific object they want clues for.
-     */
-    suspend fun detectObjects(photoPath: String): DetectedObjectsResult = withContext(Dispatchers.IO) {
-        val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280)
-            ?: return@withContext DetectedObjectsResult(0, 0, emptyList())
-        val image = InputImage.fromBitmap(bmp, 0)
-        val objects = runCatching { objectDetector.process(image).await() }.getOrElse { emptyList() }
-        val regions = objects.mapIndexed { idx, obj ->
-            val labels = obj.labels.map { it.text.trim() }.filter { it.isNotBlank() }
-            DetectedRegion(id = idx, boundingBox = obj.boundingBox, labels = labels)
-        }
-        DetectedObjectsResult(bitmapWidth = bmp.width, bitmapHeight = bmp.height, regions = regions)
-    }
-
-    /**
-     * Suggest keywords for a specific region of the photo (cropped to [region]).
-     *
-     * This dramatically improves accuracy when multiple objects are present.
-     */
-    suspend fun suggestKeywordsForRegion(
-        photoPath: String,
-        region: android.graphics.Rect,
-        max: Int = 8
-    ): List<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280) ?: error("Failed to decode image")
-            val crop = safeCrop(bmp, region) ?: error("Failed to crop region")
-            val image = InputImage.fromBitmap(crop, 0)
-
-            // --- Labels on the crop (primary) ---
-            val cropLabels = runCatching {
-                labeler.process(image).await()
-                    .sortedByDescending { it.confidence }
-                    .filter { it.confidence >= 0.55f }
-                    .take(6)
-                    .map { lbl ->
-                        Candidate(
-                            token = lbl.text.trim(),
-                            score = (lbl.confidence * 1.05f).coerceAtMost(1f),
-                            source = Source.USER_REGION
-                        )
-                    }
-            }.getOrElse { emptyList() }
-
-            // --- OCR on the crop (precision booster) ---
-            val ocr = runCatching {
-                val raw = textRecognizer.process(image).await().text.lowercase(Locale.getDefault())
-                val tokens = raw
-                    .replace(Regex("[^a-z0-9\\n ]"), " ")
-                    .split(Regex("\\s+"))
-                    .map { it.trim() }
-                    .filter { it.length in 4..18 }
-                    .filter { it.any { ch -> ch.isLetter() } }
-                    .filterNot { STOP_WORDS.contains(it) }
-                    .filterNot { GENERIC_LABELS.contains(it) }
-                    .filterNot { HARD_DENYLIST.contains(it) }
-                    .filterNot { BAD_LABELS.contains(it) }
-
-                val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
-                    .map { (a, b) -> "$a $b" }
-                    .filter { it.length in 7..26 }
-                    .filterNot { bg ->
-                        val parts = bg.split(' ')
-                        parts.any { p -> STOP_WORDS.contains(p) || HARD_DENYLIST.contains(p) || GENERIC_LABELS.contains(p) }
-                    }
-
-                (bigrams + tokens).distinct().take(6)
-                    .map { t -> Candidate(token = t, score = 0.72f, source = Source.OCR) }
-            }.getOrElse { emptyList() }
-
-            val all = cropLabels + ocr
-
-            val scored = all
-                .flatMap { c ->
-                    expandTokens(normalizeToken(c.token)).map { t ->
-                        Candidate(token = t, score = c.score, source = c.source)
-                    }
-                }
-                .filter { it.token.isNotBlank() && it.token.length >= 2 }
-                .filterNot { STOP_WORDS.contains(it.token) }
-                .filterNot { GENERIC_LABELS.contains(it.token) }
-                .filterNot { HARD_DENYLIST.contains(it.token) }
-                .filterNot { BAD_LABELS.contains(it.token) }
-                .groupBy { it.token }
-                .map { (t, xs) ->
-                    val best = xs.maxByOrNull { it.score + sourceBoost(it.source) }!!
-                    best.copy(token = t)
-                }
-                .sortedByDescending { it.score + sourceBoost(it.source) }
-
-            val out = scored.map { it.token }.distinct().toMutableList()
-
-            // Context cleanup (same as full-image pipeline)
-            val drinkwareHints = setOf("cup", "mug", "glass", "tableware", "drinkware", "ceramic", "porcelain")
-            if (out.any { drinkwareHints.contains(it) }) {
-                out.removeAll(setOf("product", "goods", "material", "textile", "paper", "container", "object", "item", "thing"))
-                if (!out.contains("cup")) out.add(0, "cup")
-                if (!out.contains("mug")) out.add(1.coerceAtMost(out.size), "mug")
-            }
-
-            val electronicsHints = setOf("television", "tv", "monitor", "laptop", "computer", "screen", "keyboard")
-            if (out.any { electronicsHints.contains(it) }) {
-                out.removeAll(setOf("product", "goods", "equipment", "device", "object", "item", "thing"))
-            }
-
-            out.distinct().take(max)
-        }.getOrElse { emptyList() }
-    }
-
-    /**
-     * Suggest keywords for multiple regions specified in normalized [0..1] coordinates.
-     * This is used by the live camera selector where detections are computed on a preview stream.
-     */
-    suspend fun suggestKeywordsForNormalizedRegions(
-        photoPath: String,
-        regions: List<RectF>,
-        maxPerRegion: Int = 8,
-        maxOut: Int = 16
-    ): List<String> = withContext(Dispatchers.IO) {
-        runCatching {
-            if (regions.isEmpty()) return@runCatching emptyList()
-            val bmp = decodeScaledBitmapUpright(photoPath, maxDim = 1280) ?: error("Failed to decode image")
-            val out = buildList {
-                regions.forEach { rf ->
-                    val left = (rf.left.coerceIn(0f, 1f) * bmp.width).toInt()
-                    val top = (rf.top.coerceIn(0f, 1f) * bmp.height).toInt()
-                    val right = (rf.right.coerceIn(0f, 1f) * bmp.width).toInt()
-                    val bottom = (rf.bottom.coerceIn(0f, 1f) * bmp.height).toInt()
-                    val rect = android.graphics.Rect(left, top, right, bottom)
-                    addAll(suggestKeywordsForRegion(photoPath, rect, max = maxPerRegion))
-                }
-            }
-            out.map { it.trim() }.filter { it.isNotBlank() }.distinct().take(maxOut)
-        }.getOrElse { emptyList() }
     }
 
     /**
@@ -295,24 +135,6 @@ class AiKeywordHelper(private val context: Context) {
 
             val hasObjects = objectCandidates.isNotEmpty()
 
-            // --- B0) OCR FIRST PASS (signals) ------------------------------------------------
-            // OCR is often the most precise signal for electronics/photos of branded items.
-            // We do a light pass here to detect strong domain hints (e.g., laptop brands),
-            // then run the full OCR candidate extraction later.
-            val (ocrRawLower, ocrHintTags) = runCatching {
-                val raw = textRecognizer.process(image).await().text
-                    .lowercase(Locale.getDefault())
-                val tokens = raw
-                    .replace(Regex("[^a-z0-9\\n ]"), " ")
-                    .split(Regex("\\s+"))
-                    .map { it.trim() }
-                    .filter { it.length in 3..24 }
-                    .filter { it.any { ch -> ch.isLetter() } }
-
-                val hasLaptopHint = tokens.any { LAPTOP_HINTS.contains(it) || LAPTOP_BRANDS.contains(it) }
-                raw to (if (hasLaptopHint) setOf("laptop") else emptySet())
-            }.getOrElse { "" to emptySet() }
-
             // --- B) SCENE (only if very confident, or if we didn't find objects) --------------
             val sceneCandidates: List<Candidate> = runCatching {
                 labeler.process(image).await()
@@ -322,7 +144,7 @@ class AiKeywordHelper(private val context: Context) {
                         val c = lbl.confidence
                         // If objects exist, allow only very high-confidence scene/context labels.
                         val threshold = if (hasObjects) 0.78f else minConfidence
-                        c >= threshold && !GENERIC_LABELS.contains(t) && !BAD_LABELS.contains(t)
+                        c >= threshold && !GENERIC_LABELS.contains(t)
                     }
                     .take(if (hasObjects) 2 else 5)
                     .map { lbl ->
@@ -336,8 +158,8 @@ class AiKeywordHelper(private val context: Context) {
 
             // --- C) OCR (only used as a precision booster; heavily filtered) -----------------
             val ocrCandidates: List<Candidate> = runCatching {
-                val raw = if (ocrRawLower.isNotBlank()) ocrRawLower
-                else textRecognizer.process(image).await().text.lowercase(Locale.getDefault())
+                val raw = textRecognizer.process(image).await().text
+                    .lowercase(Locale.getDefault())
 
                 val tokens = raw
                     .replace(Regex("[^a-z0-9\\n ]"), " ")
@@ -347,8 +169,6 @@ class AiKeywordHelper(private val context: Context) {
                     .filter { it.any { ch -> ch.isLetter() } }
                     .filterNot { STOP_WORDS.contains(it) }
                     .filterNot { GENERIC_LABELS.contains(it) }
-                    .filterNot { HARD_DENYLIST.contains(it) }
-                    .filterNot { BAD_LABELS.contains(it) }
 
                 // Useful bigrams, but require at least one "strong" token.
                 val bigrams = tokens.windowed(size = 2, step = 1, partialWindows = false)
@@ -358,54 +178,22 @@ class AiKeywordHelper(private val context: Context) {
                         val parts = bg.split(' ')
                         parts.any { it.length >= 6 }
                     }
-                    // Avoid useless phrases like "some good" / "very good".
-                    .filterNot { bg ->
-                        val parts = bg.split(' ')
-                        parts.any { p -> STOP_WORDS.contains(p) || HARD_DENYLIST.contains(p) || GENERIC_LABELS.contains(p) }
-                    }
-
-                val hasLaptopHint = tokens.any { LAPTOP_HINTS.contains(it) || LAPTOP_BRANDS.contains(it) } || ocrHintTags.contains("laptop")
-
-                // If we detect a laptop/computer hint via OCR (brands, model words), we keep more
-                // OCR tokens because they're usually highly searchable ("lenovo", "thinkpad", etc.).
-                // Otherwise keep OCR conservative to avoid noisy text.
-                val ocrTake = when {
-                    hasLaptopHint -> if (hasObjects) 6 else 8
-                    hasObjects -> 2
-                    else -> 4
-                }
 
                 val keep = (bigrams + tokens)
                     .distinct()
-                    .take(ocrTake)
+                    // If objects exist, OCR is usually secondary (avoid noisy brands/text).
+                    .take(if (hasObjects) 2 else 4)
 
-                val injected = if (hasLaptopHint) listOf("laptop", "computer", "keyboard") else emptyList()
-
-                (keep + injected).distinct().map {
-                    val baseScore = when {
-                        hasLaptopHint -> if (hasObjects) 0.72f else 0.78f
-                        hasObjects -> 0.62f
-                        else -> 0.68f
-                    }
+                keep.map {
                     Candidate(
                         token = it,
-                        score = baseScore,
+                        score = if (hasObjects) 0.62f else 0.68f,
                         source = Source.OCR
                     )
                 }
             }.getOrElse { emptyList() }
 
-            // If OCR strongly indicates a laptop/computer, suppress common mislabels that are
-            // frequent false-positives in desk/keyboard scenes.
-            val ocrSuggestsLaptop = ocrCandidates.any { it.token.lowercase(Locale.getDefault()) in setOf("laptop", "computer", "keyboard") }
-            val filteredScene = if (ocrSuggestsLaptop) {
-                sceneCandidates.filterNot {
-                    val t = it.token.lowercase(Locale.getDefault())
-                    t in MUSIC_MISLABELS
-                }
-            } else sceneCandidates
-
-            val all = (objectCandidates + filteredScene + ocrCandidates)
+            val all = (objectCandidates + sceneCandidates + ocrCandidates)
 
             // Expand + dedupe while keeping the BEST score per token.
             val scored = all
@@ -417,8 +205,6 @@ class AiKeywordHelper(private val context: Context) {
                 .filter { it.token.isNotBlank() && it.token.length >= 2 }
                 .filterNot { STOP_WORDS.contains(it.token) }
                 .filterNot { GENERIC_LABELS.contains(it.token) }
-                .filterNot { HARD_DENYLIST.contains(it.token) }
-                .filterNot { BAD_LABELS.contains(it.token) }
                 .groupBy { it.token }
                 .map { (t, xs) ->
                     // Prefer object sources when scores are similar.
@@ -437,25 +223,7 @@ class AiKeywordHelper(private val context: Context) {
             }
             out += (others.map { it.token }).filterNot { out.contains(it) }
 
-            // Final context-aware cleanup: remove generic junk when a strong domain is present.
-            val cleaned = out.distinct().toMutableList()
-
-            // Drinkware/tableware: keep concrete nouns, drop generic hallucinations.
-            val drinkwareHints = setOf("cup", "mug", "glass", "tableware", "drinkware", "ceramic", "porcelain")
-            if (cleaned.any { drinkwareHints.contains(it) }) {
-                cleaned.removeAll(setOf("product", "goods", "material", "textile", "paper", "container", "object", "item", "thing"))
-                // Ensure the key nouns are present.
-                if (!cleaned.contains("cup")) cleaned.add(0, "cup")
-                if (!cleaned.contains("mug")) cleaned.add(1.coerceAtMost(cleaned.size), "mug")
-            }
-
-            // Electronics: suppress generic terms like "device"/"equipment".
-            val electronicsHints = setOf("television", "tv", "monitor", "laptop", "computer", "screen", "keyboard")
-            if (cleaned.any { electronicsHints.contains(it) }) {
-                cleaned.removeAll(setOf("product", "goods", "equipment", "device", "object", "item", "thing"))
-            }
-
-            cleaned.distinct().take(max)
+            out.distinct().take(max)
         }.getOrElse { t ->
             Log.w("AiKeywordHelper", "ML Kit labeling failed for path=$photoPath", t)
             emptyList()
@@ -465,18 +233,16 @@ class AiKeywordHelper(private val context: Context) {
     private fun sourceBoost(s: Source): Float = when (s) {
         Source.OBJECT_DIRECT -> 0.12f
         Source.OBJECT_CROP -> 0.08f
-        Source.USER_REGION -> 0.14f
         Source.SCENE -> 0.02f
         Source.OCR -> 0.04f
     }
 
     private fun normalizeToken(raw: String): String {
         // Keep it human-friendly and searchable.
-        // IMPORTANT: ML Kit labels are often Title Case (e.g., "Cup").
-        // Our previous sanitizer only allowed [a-z], which stripped the first capital letter
-        // ("Cup" -> "up"). We lowercase first, then strip punctuation safely.
-        val lower = raw.lowercase(Locale.getDefault())
-        return lower
+        // - lowercased upstream
+        // - remove stray punctuation
+        // - collapse whitespace
+        return raw
             .replace(Regex("[^a-z0-9 ]"), " ")
             .trim()
             .replace(Regex("\\s+"), " ")
@@ -484,35 +250,18 @@ class AiKeywordHelper(private val context: Context) {
 
     private fun expandTokens(token: String): List<String> {
         // ML Kit sometimes returns multi-word labels like "mobile phone".
-        // We keep:
-        //  - the full phrase (good for search)
-        //  - the head noun (usually the last meaningful word) to avoid spammy splits
-        // We intentionally do NOT explode into every individual word.
+        // Keeping both the phrase and the most informative words improves search + UX.
         val words = token.split(' ').map { it.trim() }.filter { it.isNotBlank() }
         if (words.size <= 1) return listOf(token)
-        val trimmed = words
-            .map { it.lowercase(Locale.getDefault()) }
-            .filterNot { STOP_WORDS.contains(it) }
-
-        // Head noun: last word that is not a common modifier.
-        val head = trimmed.lastOrNull { w -> w.length >= 3 && !MODIFIER_WORDS.contains(w) }
-        return (listOf(token) + listOfNotNull(head)).distinct()
+        val trimmed = words.filterNot { STOP_WORDS.contains(it) }
+        val singleWords = trimmed.filter { it.length >= 3 }
+        return (listOf(token) + singleWords).distinct()
     }
 
     private companion object {
         private val STOP_WORDS = setOf(
             "a", "an", "the", "and", "or", "of", "to", "in", "on", "with",
-            "object", "thing", "items", "item", "photo", "picture", "image",
-            // Common OCR filler words that create junk bigrams like "some good".
-            "some", "good", "very", "more", "best"
-        )
-
-        // Extra hard filters for low-value / generic terms that frequently show up in ML Kit
-        // labels and OCR, but don't help users search for a memory later.
-        private val HARD_DENYLIST = setOf(
-            "product", "goods", "material", "textile", "paper",
-            "device", "equipment", "container",
-            "object", "item", "thing", "stuff"
+            "object", "thing", "items", "item", "photo", "picture", "image"
         )
 
         // Labels that are common but usually not helpful as "object" keywords.
@@ -525,41 +274,6 @@ class AiKeywordHelper(private val context: Context) {
             "food", "meal", "cuisine", "dish",
             "plant", "flower", "tree", "nature",
             "person", "people", "human", "man", "woman", "child"
-        )
-
-        // Frequent false-positives / low-value labels we never want as user-facing clues.
-        private val BAD_LABELS = setOf(
-            "jumper",
-            "musical instrument",
-            "instrument",
-            "string instrument",
-            "guitar",
-            "music"
-        )
-
-        // Subset used specifically to suppress scene mislabels when OCR indicates a laptop/desk.
-        private val MUSIC_MISLABELS = setOf(
-            "musical instrument",
-            "instrument",
-            "string instrument",
-            "guitar",
-            "music"
-        )
-
-        // Words that are usually modifiers and become noisy when split out.
-        private val MODIFIER_WORDS = setOf(
-            "mobile", "portable", "wireless", "digital", "electric", "electronic",
-            "small", "large", "black", "white", "silver", "blue", "red"
-        )
-
-        // OCR hints that strongly imply the photo is of a computer/laptop setup.
-        private val LAPTOP_HINTS = setOf(
-            "laptop", "notebook", "thinkpad", "macbook", "keyboard", "touchpad", "windows"
-        )
-
-        private val LAPTOP_BRANDS = setOf(
-            "lenovo", "dell", "hp", "asus", "acer", "apple", "microsoft",
-            "intel", "amd", "nvidia", "thinkpad", "ideapad"
         )
     }
 
