@@ -10,8 +10,6 @@ import androidx.camera.core.ImageCaptureException
 import androidx.camera.core.ImageProxy
 import androidx.camera.core.Preview
 import androidx.camera.lifecycle.ProcessCameraProvider
-import androidx.camera.view.CameraController
-import androidx.camera.view.LifecycleCameraController
 import androidx.camera.view.PreviewView
 import androidx.compose.animation.AnimatedVisibility
 import androidx.compose.animation.fadeIn
@@ -807,14 +805,7 @@ private fun CameraCapture(
     val executor: Executor = ContextCompat.getMainExecutor(context)
     val hasCamera = ContextCompat.checkSelfPermission(context, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED
 
-    // Use a controller-based approach so ImageAnalysis is reliably bound in Compose.
-    // This avoids silent bind failures (and therefore missing boxes) on some devices/CI.
-    val cameraController = remember(context) {
-        LifecycleCameraController(context).apply {
-            cameraSelector = CameraSelector.DEFAULT_BACK_CAMERA
-            setEnabledUseCases(CameraController.IMAGE_CAPTURE or CameraController.IMAGE_ANALYSIS)
-        }
-    }
+    var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
 
     // Live preview selector
     // We run on-device ML Kit object detection on a throttled preview stream and let the user
@@ -860,17 +851,61 @@ private fun CameraCapture(
             return@Box
         }
 
-        // Camera preview view (Controller-based; reliable in Compose)
+        // Camera preview view
         AndroidView(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
-                PreviewView(ctx).apply {
+                val previewView = PreviewView(ctx).apply {
                     // Use FIT_CENTER so our overlay mapping math is stable.
                     scaleType = PreviewView.ScaleType.FIT_CENTER
-                    controller = cameraController
                 }
-            },
-            update = { it.controller = cameraController }
+
+                val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
+                cameraProviderFuture.addListener({
+                    val cameraProvider = cameraProviderFuture.get()
+                    val preview = Preview.Builder().build().also {
+                        it.setSurfaceProvider(previewView.surfaceProvider)
+                    }
+                    val capture = ImageCapture.Builder()
+                        .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
+                        .build()
+
+                    val analysis = ImageAnalysis.Builder()
+                        .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
+                        .build()
+
+                    analysis.setAnalyzer(analysisExecutor) { imageProxy ->
+                        analyzeFrameForObjects(
+                            imageProxy = imageProxy,
+                            detector = detector,
+                            mainExecutor = executor,
+                            onResult = { w, h, boxes ->
+                                liveImageW = w
+                                liveImageH = h
+                                liveBoxes = boxes
+                            },
+                            isAnalyzing = isAnalyzing,
+                            getLastMs = { lastAnalyzeMs },
+                            setLastMs = { lastAnalyzeMs = it }
+                        )
+                    }
+
+                    imageCapture = capture
+                    try {
+                        cameraProvider.unbindAll()
+                        cameraProvider.bindToLifecycle(
+                            lifecycleOwner,
+                            CameraSelector.DEFAULT_BACK_CAMERA,
+                            preview,
+                            capture,
+                            analysis
+                        )
+                    } catch (_: Throwable) {
+                    }
+                }, executor)
+
+                previewView
+            }
         )
 
         // Overlay with live boxes + multi-select.
@@ -974,16 +1009,18 @@ private fun CameraCapture(
         // iOS-like: one primary shutter button, no clutter.
         Button(
             onClick = {
+                val capture = imageCapture ?: return@Button
                 val file = photoStore.newPhotoFile()
                 val output = ImageCapture.OutputFileOptions.Builder(file).build()
-                cameraController.takePicture(
+                capture.takePicture(
                     output,
                     executor,
                     object : ImageCapture.OnImageSavedCallback {
                         override fun onImageSaved(outputFileResults: ImageCapture.OutputFileResults) {
-                            // SnapshotStateList is live; pass a stable deep copy of the currently selected boxes.
-                            val snapshot = List(selectedLiveBoxes.size) { i -> RectF(selectedLiveBoxes[i]) }
-                            onCaptured(file.absolutePath, snapshot)
+								// SnapshotStateList is a live (mutable) list; pass a stable copy.
+								// Use ArrayList(copy) to avoid any extension-resolution weirdness across Kotlin versions.
+								// Pass a stable snapshot copy of the currently selected boxes.
+								onCaptured(file.absolutePath, selectedLiveBoxes.toList())
                         }
 
                         override fun onError(exception: ImageCaptureException) {
@@ -1003,34 +1040,13 @@ private fun CameraCapture(
         }
     }
 
-    // Bind analysis + capture to lifecycle and clean up properly when leaving composition.
+    // Avoid leaking threads when this composable leaves composition.
     // We intentionally avoid using `onDispose {}` to keep compatibility with CI environments
     // that have had symbol-resolution issues for that extension.
-    DisposableEffect(cameraController, lifecycleOwner) {
-        // Analyzer must be set *before* binding to ensure we start receiving frames immediately.
-        cameraController.setImageAnalysisAnalyzer(analysisExecutor) { imageProxy ->
-            analyzeFrameForObjects(
-                imageProxy = imageProxy,
-                detector = detector,
-                mainExecutor = executor,
-                onResult = { w, h, boxes ->
-                    liveImageW = w
-                    liveImageH = h
-                    liveBoxes = boxes
-                },
-                isAnalyzing = isAnalyzing,
-                getLastMs = { lastAnalyzeMs },
-                setLastMs = { lastAnalyzeMs = it }
-            )
-        }
-        runCatching { cameraController.bindToLifecycle(lifecycleOwner) }
-
+    DisposableEffect(Unit) {
         return@DisposableEffect object : DisposableEffectResult {
             override fun dispose() {
-                runCatching { cameraController.clearImageAnalysisAnalyzer() }
-                runCatching { cameraController.unbind() }
                 runCatching { analysisExecutor.shutdown() }
-                runCatching { detector.close() }
             }
         }
     }
