@@ -534,6 +534,10 @@ private fun ReflectSheetContent(
     }
 }
 
+// NOTE: ReflectSheetContent uses Scaffold with multiple nested lambdas.
+// This brace closes the ReflectSheetContent composable scope.
+}
+
 @OptIn(ExperimentalMaterial3Api::class)
 @Composable
 private fun ObjectSelectDialog(
