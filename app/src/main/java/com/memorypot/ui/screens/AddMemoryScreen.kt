@@ -288,9 +288,16 @@ private fun ReflectSheetContent(
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { pages.size })
     val scope = rememberCoroutineScope()
 
+    // IMPORTANT UX FIX:
+    // The previous layout used a fixed-height pager (320dp) inside a non-scrollable Column.
+    // On many devices this pushed the bottom action row (Done/Save) off-screen, making it
+    // appear as if “Save” was missing.
+    //
+    // Use a weighted pager so it takes the remaining height, and keep the bottom actions
+    // always visible.
     Column(
         modifier = Modifier
-            .fillMaxWidth()
+            .fillMaxSize()
             .imePadding()
             .navigationBarsPadding()
             .padding(horizontal = 16.dp)
@@ -333,7 +340,7 @@ private fun ReflectSheetContent(
             state = pagerState,
             modifier = Modifier
                 .fillMaxWidth()
-                .height(320.dp)
+                .weight(1f, fill = true)
         ) { index ->
             when (pages[index]) {
                 ReflectPage.CLUES -> {
@@ -495,7 +502,7 @@ private fun ReflectSheetContent(
             }
         }
 
-        // Bottom bar: iOS-like "Retake" + primary "Done".
+        // Bottom bar: iOS-like "Retake" + primary "Save".
         Row(
             modifier = Modifier.fillMaxWidth(),
             horizontalArrangement = Arrangement.spacedBy(12.dp),
@@ -515,7 +522,7 @@ private fun ReflectSheetContent(
                     CircularProgressIndicator(modifier = Modifier.size(18.dp))
                     Spacer(Modifier.size(8.dp))
                 }
-                Text("Done")
+                Text("Save")
             }
         }
         Spacer(Modifier.height(6.dp))
@@ -829,6 +836,9 @@ private fun CameraCapture(
     var liveBoxes by remember { mutableStateOf<List<LiveBox>>(emptyList()) }
     // Surface ML Kit / analyzer failures so we can debug on real devices.
     var liveDetectError by remember { mutableStateOf<String?>(null) }
+    // If the detector is running but just not seeing anything, show a helpful hint.
+    // (Users otherwise assume the feature is broken.)
+    var liveDetectHint by remember { mutableStateOf<String?>(null) }
     // Explicit type helps Kotlin choose the correct collection extensions (clear/isNotEmpty/toList)
     // across differing Kotlin/Compose compiler versions.
     val selectedLiveBoxes: androidx.compose.runtime.snapshots.SnapshotStateList<RectF> =
@@ -860,6 +870,24 @@ private fun CameraCapture(
                 Button(onClick = onBack) { Text("Back") }
             }
             return@Box
+        }
+
+        // If we have a live camera feed and the analyzer is running, but no objects have
+        // been detected for a while, show a non-fatal hint.
+        LaunchedEffect(cameraGranted, bindError) {
+            if (!cameraGranted || bindError != null) return@LaunchedEffect
+            // Reset when camera re-binds.
+            liveDetectHint = null
+            // Wait a moment for the pipeline to warm up.
+            delay(2500)
+            if (liveDetectError == null && liveBoxes.isEmpty()) {
+                liveDetectHint = "No objects detected yet — try moving closer or improve lighting."
+            }
+        }
+
+        // Clear the hint as soon as we have any detections.
+        LaunchedEffect(liveBoxes) {
+            if (liveBoxes.isNotEmpty()) liveDetectHint = null
         }
 
         // Camera preview view
@@ -943,6 +971,7 @@ private fun CameraCapture(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 24.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
@@ -966,6 +995,7 @@ private fun CameraCapture(
             Column(
                 modifier = Modifier
                     .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
                     .padding(top = 90.dp)
                     .clip(RoundedCornerShape(16.dp))
                     .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
@@ -980,6 +1010,50 @@ private fun CameraCapture(
                 Text(
                     liveDetectError ?: "Unknown",
                     style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (liveDetectHint != null && liveDetectError == null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    .padding(top = 90.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "Object detection",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    liveDetectHint ?: "",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        // Always show a tiny status chip so it's obvious the live pipeline is active.
+        if (bindError == null) {
+            val selectedCount = selectedLiveBoxes.size
+            val detectedCount = liveBoxes.size
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopStart)
+                    .padding(top = 16.dp, start = 12.dp)
+                    .clip(RoundedCornerShape(14.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.82f))
+                    .padding(horizontal = 10.dp, vertical = 6.dp)
+            ) {
+                Text(
+                    "Detected: $detectedCount  •  Selected: $selectedCount",
+                    style = MaterialTheme.typography.labelSmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
             }
