@@ -288,61 +288,91 @@ private fun ReflectSheetContent(
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { pages.size })
     val scope = rememberCoroutineScope()
 
-    // IMPORTANT UX FIX:
-    // The previous layout used a fixed-height pager (320dp) inside a non-scrollable Column.
-    // On many devices this pushed the bottom action row (Done/Save) off-screen, making it
-    // appear as if “Save” was missing.
-    //
-    // Use a weighted pager so it takes the remaining height, and keep the bottom actions
-    // always visible.
-    Column(
-        modifier = Modifier
-            .fillMaxSize()
-            .imePadding()
-            .navigationBarsPadding()
-            .padding(horizontal = 16.dp)
-            .padding(bottom = 14.dp),
-        verticalArrangement = Arrangement.spacedBy(12.dp)
-    ) {
-        // Top handle + segmented control (Apple Photos vibe)
-        Box(
-            modifier = Modifier
-                .align(Alignment.CenterHorizontally)
-                .padding(top = 8.dp, bottom = 2.dp)
-                .size(width = 44.dp, height = 5.dp)
-                .clip(RoundedCornerShape(99.dp))
-                .background(MaterialTheme.colorScheme.outlineVariant)
-        )
+    // Professional layout: keep actions pinned to the bottom (like a proper bottom bar)
+    // and let the paged content scroll independently above it.
+    Scaffold(
+        bottomBar = {
+            Surface(
+                tonalElevation = 3.dp,
+                shadowElevation = 8.dp
+            ) {
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .windowInsetsPadding(WindowInsets.navigationBars)
+                        .imePadding()
+                        .padding(horizontal = 16.dp, vertical = 12.dp),
+                    horizontalArrangement = Arrangement.spacedBy(12.dp),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+                    OutlinedButton(
+                        onClick = onRetake,
+                        modifier = Modifier.weight(1f)
+                    ) { Text("Retake") }
 
-        TabRow(
-            selectedTabIndex = pagerState.currentPage,
-            containerColor = MaterialTheme.colorScheme.surface,
-            divider = {}
-        ) {
-            Tab(
-                selected = pagerState.currentPage == 0,
-                onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
-                text = { Text("Clues") }
-            )
-            Tab(
-                selected = pagerState.currentPage == 1,
-                onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
-                text = { Text("Note") }
-            )
-            Tab(
-                selected = pagerState.currentPage == 2,
-                onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
-                text = { Text("Place") }
-            )
+                    Button(
+                        onClick = onDoneClick,
+                        enabled = !state.isSaving,
+                        modifier = Modifier.weight(1f)
+                    ) {
+                        if (state.isSaving) {
+                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                            Spacer(Modifier.size(8.dp))
+                        }
+                        Text("Save")
+                    }
+                }
+            }
         }
-
-        HorizontalPager(
-            state = pagerState,
+    ) { innerPadding ->
+        Column(
             modifier = Modifier
-                .fillMaxWidth()
-                .weight(1f, fill = true)
-        ) { index ->
-            when (pages[index]) {
+                .fillMaxSize()
+                .padding(innerPadding)
+                .padding(horizontal = 16.dp)
+                .padding(top = 6.dp)
+                .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
+            verticalArrangement = Arrangement.spacedBy(12.dp)
+        ) {
+            // Top handle + segmented control (Apple Photos vibe)
+            Box(
+                modifier = Modifier
+                    .align(Alignment.CenterHorizontally)
+                    .padding(top = 8.dp, bottom = 2.dp)
+                    .size(width = 44.dp, height = 5.dp)
+                    .clip(RoundedCornerShape(99.dp))
+                    .background(MaterialTheme.colorScheme.outlineVariant)
+            )
+
+            TabRow(
+                selectedTabIndex = pagerState.currentPage,
+                containerColor = MaterialTheme.colorScheme.surface,
+                divider = {}
+            ) {
+                Tab(
+                    selected = pagerState.currentPage == 0,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(0) } },
+                    text = { Text("Clues") }
+                )
+                Tab(
+                    selected = pagerState.currentPage == 1,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(1) } },
+                    text = { Text("Note") }
+                )
+                Tab(
+                    selected = pagerState.currentPage == 2,
+                    onClick = { scope.launch { pagerState.animateScrollToPage(2) } },
+                    text = { Text("Place") }
+                )
+            }
+
+            HorizontalPager(
+                state = pagerState,
+                modifier = Modifier
+                    .fillMaxWidth()
+                    .weight(1f, fill = true)
+            ) { index ->
+                when (pages[index]) {
                 ReflectPage.CLUES -> {
                     Column(
                         modifier = Modifier
@@ -501,31 +531,6 @@ private fun ReflectSheetContent(
                 }
             }
         }
-
-        // Bottom bar: iOS-like "Retake" + primary "Save".
-        Row(
-            modifier = Modifier.fillMaxWidth(),
-            horizontalArrangement = Arrangement.spacedBy(12.dp),
-            verticalAlignment = Alignment.CenterVertically
-        ) {
-            OutlinedButton(
-                onClick = onRetake,
-                modifier = Modifier.weight(1f)
-            ) { Text("Retake") }
-
-            Button(
-                onClick = onDoneClick,
-                enabled = !state.isSaving,
-                modifier = Modifier.weight(1f)
-            ) {
-                if (state.isSaving) {
-                    CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                    Spacer(Modifier.size(8.dp))
-                }
-                Text("Save")
-            }
-        }
-        Spacer(Modifier.height(6.dp))
     }
 }
 
@@ -895,8 +900,10 @@ private fun CameraCapture(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
-                    // Use FIT_CENTER so our overlay mapping math is stable.
-                    scaleType = PreviewView.ScaleType.FIT_CENTER
+                    // Use FILL_CENTER so the camera preview matches what users expect (edge-to-edge).
+                    // IMPORTANT: when using FILL_CENTER, the preview may be center-cropped.
+                    // Our overlay math below uses the same scaling model so boxes and taps line up.
+                    scaleType = PreviewView.ScaleType.FILL_CENTER
                     // COMPATIBLE is more reliable across OEM devices, especially when embedded
                     // in Compose via AndroidView.
                     implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -1070,7 +1077,8 @@ private fun CameraCapture(
                         if (liveImageW <= 0 || liveImageH <= 0) return@detectTapGestures
                         val w = size.width
                         val h = size.height
-                        val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                        // PreviewView is FILL_CENTER (center-crop), so use the *max* scale.
+                        val scale = kotlin.math.max(w / liveImageW.toFloat(), h / liveImageH.toFloat())
                         val dx = (w - liveImageW * scale) / 2f
                         val dy = (h - liveImageH * scale) / 2f
 
@@ -1094,7 +1102,8 @@ private fun CameraCapture(
             val w = size.width
             val h = size.height
             if (liveImageW > 0 && liveImageH > 0) {
-                val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                // PreviewView is FILL_CENTER (center-crop), so use the *max* scale.
+                val scale = kotlin.math.max(w / liveImageW.toFloat(), h / liveImageH.toFloat())
                 val dx = (w - liveImageW * scale) / 2f
                 val dy = (h - liveImageH * scale) / 2f
 
