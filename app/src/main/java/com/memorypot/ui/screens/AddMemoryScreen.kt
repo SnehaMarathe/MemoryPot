@@ -827,6 +827,8 @@ private fun CameraCapture(
     var liveImageW by remember { mutableStateOf(0) }
     var liveImageH by remember { mutableStateOf(0) }
     var liveBoxes by remember { mutableStateOf<List<LiveBox>>(emptyList()) }
+    // Surface ML Kit / analyzer failures so we can debug on real devices.
+    var liveDetectError by remember { mutableStateOf<String?>(null) }
     // Explicit type helps Kotlin choose the correct collection extensions (clear/isNotEmpty/toList)
     // across differing Kotlin/Compose compiler versions.
     val selectedLiveBoxes: androidx.compose.runtime.snapshots.SnapshotStateList<RectF> =
@@ -902,6 +904,12 @@ private fun CameraCapture(
                                 liveImageW = w
                                 liveImageH = h
                                 liveBoxes = boxes
+                                liveDetectError = null
+                            },
+                            onError = { msg ->
+                                liveDetectError = msg
+                                // Clear boxes so the overlay reflects the failure.
+                                liveBoxes = emptyList()
                             },
                             isAnalyzing = isAnalyzing,
                             getLastMs = { lastAnalyzeMs },
@@ -948,6 +956,29 @@ private fun CameraCapture(
                 Spacer(Modifier.height(6.dp))
                 Text(
                     bindError ?: "Unknown error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
+
+        if (liveDetectError != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 90.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "Object detection not running",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    liveDetectError ?: "Unknown",
                     style = MaterialTheme.typography.bodySmall,
                     color = MaterialTheme.colorScheme.onSurfaceVariant
                 )
@@ -1138,6 +1169,7 @@ private fun analyzeFrameForObjects(
     detector: ObjectDetector,
     mainExecutor: Executor,
     onResult: (imageW: Int, imageH: Int, boxes: List<LiveBox>) -> Unit,
+    onError: (String) -> Unit,
     isAnalyzing: AtomicBoolean,
     getLastMs: () -> Long,
     setLastMs: (Long) -> Unit,
@@ -1162,30 +1194,36 @@ private fun analyzeFrameForObjects(
     }
 
     val rotation = imageProxy.imageInfo.rotationDegrees
-    // For 90/270 rotations, the upright image width/height are swapped.
-    val uprightW = if (rotation == 90 || rotation == 270) imageProxy.height else imageProxy.width
-    val uprightH = if (rotation == 90 || rotation == 270) imageProxy.width else imageProxy.height
+    // IMPORTANT:
+    // ML Kit returns bounding boxes in the coordinate space of the *rotated* InputImage.
+    // That size is derived from the underlying mediaImage buffer.
+    val bufferW = mediaImage.width
+    val bufferH = mediaImage.height
+    val inputW = if (rotation == 90 || rotation == 270) bufferH else bufferW
+    val inputH = if (rotation == 90 || rotation == 270) bufferW else bufferH
 
     val input = InputImage.fromMediaImage(mediaImage, rotation)
     detector.process(input)
         .addOnSuccessListener { objs ->
             val boxes = objs.mapNotNull { obj ->
                 val b = obj.boundingBox
-                if (uprightW <= 0 || uprightH <= 0) return@mapNotNull null
+                if (inputW <= 0 || inputH <= 0) return@mapNotNull null
                 val rf = RectF(
-                    (b.left.toFloat() / uprightW).coerceIn(0f, 1f),
-                    (b.top.toFloat() / uprightH).coerceIn(0f, 1f),
-                    (b.right.toFloat() / uprightW).coerceIn(0f, 1f),
-                    (b.bottom.toFloat() / uprightH).coerceIn(0f, 1f)
+                    (b.left.toFloat() / inputW).coerceIn(0f, 1f),
+                    (b.top.toFloat() / inputH).coerceIn(0f, 1f),
+                    (b.right.toFloat() / inputW).coerceIn(0f, 1f),
+                    (b.bottom.toFloat() / inputH).coerceIn(0f, 1f)
                 )
                 val lbl = obj.labels.firstOrNull()?.text?.trim()?.takeIf { it.isNotBlank() }
                 LiveBox(rect = rf, label = lbl)
             }
             // Push results to the main thread since we're mutating Compose state.
-            mainExecutor.execute { onResult(uprightW, uprightH, boxes) }
+            mainExecutor.execute { onResult(inputW, inputH, boxes) }
         }
         .addOnFailureListener {
-            // Ignore; keep last boxes.
+            mainExecutor.execute {
+                onError(it.message ?: it.javaClass.simpleName ?: "ML Kit failed")
+            }
         }
         .addOnCompleteListener {
             isAnalyzing.set(false)
