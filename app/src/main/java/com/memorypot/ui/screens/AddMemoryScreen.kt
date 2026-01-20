@@ -804,6 +804,9 @@ private fun CameraCapture(
     }
 
     var imageCapture by remember { mutableStateOf<ImageCapture?>(null) }
+    // If the camera cannot bind (e.g., missing hardware, permission, or a CameraX init issue),
+    // expose a visible error instead of silently failing.
+    var bindError by remember { mutableStateOf<String?>(null) }
 
     // Live preview selector
     // We run on-device ML Kit object detection on a throttled preview stream and let the user
@@ -864,19 +867,29 @@ private fun CameraCapture(
                 val previewView = PreviewView(ctx).apply {
                     // Use FIT_CENTER so our overlay mapping math is stable.
                     scaleType = PreviewView.ScaleType.FIT_CENTER
+                    // COMPATIBLE is more reliable across OEM devices, especially when embedded
+                    // in Compose via AndroidView.
+                    implementationMode = PreviewView.ImplementationMode.COMPATIBLE
                 }
 
                 val cameraProviderFuture = ProcessCameraProvider.getInstance(ctx)
                 cameraProviderFuture.addListener({
                     val cameraProvider = cameraProviderFuture.get()
-                    val preview = Preview.Builder().build().also {
+                    val rotation = previewView.display?.rotation
+                        ?: android.view.Surface.ROTATION_0
+
+                    val preview = Preview.Builder()
+                        .setTargetRotation(rotation)
+                        .build().also {
                         it.setSurfaceProvider(previewView.surfaceProvider)
                     }
                     val capture = ImageCapture.Builder()
+                        .setTargetRotation(rotation)
                         .setCaptureMode(ImageCapture.CAPTURE_MODE_MINIMIZE_LATENCY)
                         .build()
 
                     val analysis = ImageAnalysis.Builder()
+                        .setTargetRotation(rotation)
                         .setBackpressureStrategy(ImageAnalysis.STRATEGY_KEEP_ONLY_LATEST)
                         .build()
 
@@ -906,13 +919,40 @@ private fun CameraCapture(
                             capture,
                             analysis
                         )
-                    } catch (_: Throwable) {
+                        bindError = null
+                    } catch (t: Throwable) {
+                        // Surface binding failures are the #1 reason a PreviewView is black.
+                        // Don't swallow this; show it so it's actionable.
+                        bindError = t.message ?: t.javaClass.simpleName
                     }
                 }, executor)
 
                 previewView
             }
         )
+
+        if (bindError != null) {
+            Column(
+                modifier = Modifier
+                    .align(Alignment.TopCenter)
+                    .padding(top = 24.dp)
+                    .clip(RoundedCornerShape(16.dp))
+                    .background(MaterialTheme.colorScheme.surface.copy(alpha = 0.90f))
+                    .padding(horizontal = 14.dp, vertical = 10.dp)
+            ) {
+                Text(
+                    "Camera preview failed to start",
+                    style = MaterialTheme.typography.labelLarge,
+                    fontWeight = FontWeight.SemiBold
+                )
+                Spacer(Modifier.height(6.dp))
+                Text(
+                    bindError ?: "Unknown error",
+                    style = MaterialTheme.typography.bodySmall,
+                    color = MaterialTheme.colorScheme.onSurfaceVariant
+                )
+            }
+        }
 
         // Overlay with live boxes + multi-select.
         val livePrimaryColor = MaterialTheme.colorScheme.primary
@@ -936,8 +976,11 @@ private fun CameraCapture(
                             b.rect.contains(ix, iy)
                         }
                         if (hit != null) {
+                            // RectF equality is not reliable across all Android versions/ART
+                            // implementations when used from Kotlin (some builds fall back to
+                            // reference equality). We toggle by approximate coordinate match.
                             val r = RectF(hit.rect)
-                            val idx = selectedLiveBoxes.indexOfFirst { it == r }
+                            val idx = selectedLiveBoxes.indexOfFirst { approxSame(it, r) }
                             if (idx >= 0) selectedLiveBoxes.removeAt(idx) else selectedLiveBoxes.add(r)
                         }
                     }
@@ -1075,6 +1118,13 @@ private fun CameraCapture(
             }
         }
     }
+}
+
+private fun approxSame(a: RectF, b: RectF, eps: Float = 0.004f): Boolean {
+    return kotlin.math.abs(a.left - b.left) < eps &&
+        kotlin.math.abs(a.top - b.top) < eps &&
+        kotlin.math.abs(a.right - b.right) < eps &&
+        kotlin.math.abs(a.bottom - b.bottom) < eps
 }
 
 /**
