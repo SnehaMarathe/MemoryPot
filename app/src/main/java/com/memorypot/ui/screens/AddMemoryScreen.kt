@@ -109,6 +109,48 @@ import com.google.mlkit.vision.objects.defaults.ObjectDetectorOptions
 
 private enum class ReflectPage { CLUES, NOTE, PLACE }
 
+/**
+ * Lightweight, low-risk “wow” feature: generate a single-sentence explanation for why this
+ * moment will be easy to remember. Pure UI helper (no model/db changes).
+ */
+private fun buildRememberInsight(
+    keywords: String,
+    placeText: String
+): String? {
+    val parts = keywords
+        .split(',', '\n')
+        .map { it.trim() }
+        .filter { it.isNotBlank() }
+    if (parts.isEmpty()) return null
+
+    val lower = parts.joinToString(" ") { it.lowercase() }
+
+    // A simple “primary thing” guess: first non-trivial phrase.
+    val primary = parts.firstOrNull { it.length >= 3 }?.trim()?.lowercase()
+
+    val place = placeText.trim().ifBlank { null }?.lowercase()
+
+    val colorWords = setOf(
+        "red", "pink", "orange", "yellow", "green", "blue", "purple",
+        "black", "white", "gray", "grey", "gold", "silver", "brown"
+    )
+    val hasColor = colorWords.any { lower.contains(it) }
+
+    val dailyObjects = setOf(
+        "keys", "wallet", "phone", "remote", "charger", "earbuds", "glasses",
+        "tissue", "tissues", "bottle", "mug", "cup", "book", "bag"
+    )
+    val isDaily = dailyObjects.any { lower.contains(it) }
+
+    return when {
+        place != null && isDaily -> "You’ll remember this because it’s part of your daily routine at $place."
+        place != null && primary != null -> "You’ll remember this because the $primary stands out in $place."
+        hasColor && primary != null -> "You’ll remember this because the $primary is visually distinct."
+        isDaily -> "You’ll remember this because it’s tied to something you use often."
+        else -> "You’ll remember this because it’s distinct and context-specific."
+    }
+}
+
 // Live preview object detection box in normalized [0..1] coordinates.
 private data class LiveBox(val rect: RectF, val label: String?)
 
@@ -402,6 +444,25 @@ private fun ReflectSheetContent(
                                 title = "Memory Clues",
                                 supportingText = "Tap × to remove. Add your own and we’ll merge them.",
                                 modifier = Modifier.fillMaxWidth()
+                            )
+                        }
+
+                        // “Wow” line: a one-sentence, calm explanation for why this will stick.
+                        val rememberInsight = remember(state.keywords, state.placeText) {
+                            buildRememberInsight(state.keywords, state.placeText)
+                        }
+                        AnimatedVisibility(
+                            visible = !rememberInsight.isNullOrBlank() && state.keywords.isNotBlank(),
+                            enter = fadeIn(),
+                            exit = fadeOut()
+                        ) {
+                            Text(
+                                text = "💡 ${rememberInsight ?: ""}",
+                                style = MaterialTheme.typography.bodySmall,
+                                color = MaterialTheme.colorScheme.onSurfaceVariant,
+                                modifier = Modifier
+                                    .fillMaxWidth()
+                                    .padding(top = 2.dp)
                             )
                         }
 
