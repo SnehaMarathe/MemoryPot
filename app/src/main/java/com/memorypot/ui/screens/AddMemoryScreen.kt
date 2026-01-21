@@ -859,6 +859,11 @@ private fun CameraCapture(
     // across differing Kotlin/Compose compiler versions.
     val selectedLiveBoxes: androidx.compose.runtime.snapshots.SnapshotStateList<RectF> =
         remember { mutableStateListOf() }
+
+    // Manual selection fallback (drag-to-select) in normalized [0..1] coordinates.
+    // Some devices/scenes produce few/no ML Kit object boxes; this keeps STREAM_MODE usable.
+    var dragStart by remember { mutableStateOf<Offset?>(null) }
+    var dragEnd by remember { mutableStateOf<Offset?>(null) }
     val isAnalyzing = remember { AtomicBoolean(false) }
     var lastAnalyzeMs by remember { mutableStateOf(0L) }
 
@@ -959,7 +964,9 @@ private fun CameraCapture(
                             },
                             isAnalyzing = isAnalyzing,
                             getLastMs = { lastAnalyzeMs },
-                            setLastMs = { lastAnalyzeMs = it }
+                            setLastMs = { lastAnalyzeMs = it },
+                            // More responsive live UI.
+                            minIntervalMs = 180L
                         )
                     }
 
@@ -1109,6 +1116,60 @@ private fun CameraCapture(
                         }
                     }
                 }
+                .pointerInput(liveBoxes, liveImageW, liveImageH) {
+                    // Drag to add a manual selection (normalized RectF).
+                    detectDragGestures(
+                        onDragStart = { start ->
+                            dragStart = start
+                            dragEnd = start
+                        },
+                        onDrag = { change, _ ->
+                            dragEnd = change.position
+                        },
+                        onDragCancel = {
+                            dragStart = null
+                            dragEnd = null
+                        },
+                        onDragEnd = {
+                            val s = dragStart
+                            val e = dragEnd
+                            dragStart = null
+                            dragEnd = null
+                            if (s == null || e == null) return@detectDragGestures
+                            if (liveImageW <= 0 || liveImageH <= 0) return@detectDragGestures
+
+                            val w = size.width
+                            val h = size.height
+                            val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                            val dx = (w - liveImageW * scale) / 2f
+                            val dy = (h - liveImageH * scale) / 2f
+
+                            val l = kotlin.math.min(s.x, e.x)
+                            val t = kotlin.math.min(s.y, e.y)
+                            val r = kotlin.math.max(s.x, e.x)
+                            val b = kotlin.math.max(s.y, e.y)
+
+                            // Ignore tiny drags.
+                            if ((r - l) < 24f || (b - t) < 24f) return@detectDragGestures
+
+                            val nl = (((l - dx) / scale) / liveImageW.toFloat()).coerceIn(0f, 1f)
+                            val nt = (((t - dy) / scale) / liveImageH.toFloat()).coerceIn(0f, 1f)
+                            val nr = (((r - dx) / scale) / liveImageW.toFloat()).coerceIn(0f, 1f)
+                            val nb = (((b - dy) / scale) / liveImageH.toFloat()).coerceIn(0f, 1f)
+
+                            val rect = RectF(
+                                kotlin.math.min(nl, nr),
+                                kotlin.math.min(nt, nb),
+                                kotlin.math.max(nl, nr),
+                                kotlin.math.max(nt, nb)
+                            )
+
+                            // Toggle if it overlaps an existing manual/selected rect.
+                            val idx = selectedLiveBoxes.indexOfFirst { approxSame(it, rect) }
+                            if (idx >= 0) selectedLiveBoxes.removeAt(idx) else selectedLiveBoxes.add(rect)
+                        }
+                    )
+                }
         ) {
             val w = size.width
             val h = size.height
@@ -1154,6 +1215,27 @@ private fun CameraCapture(
                         style = androidx.compose.ui.graphics.drawscope.Stroke(width = 4f)
                     )
                 }
+
+                // In-progress manual drag rectangle (view-space feedback)
+                val s = dragStart
+                val e = dragEnd
+                if (s != null && e != null) {
+                    val left = kotlin.math.min(s.x, e.x)
+                    val top = kotlin.math.min(s.y, e.y)
+                    val right = kotlin.math.max(s.x, e.x)
+                    val bottom = kotlin.math.max(s.y, e.y)
+                    drawRect(
+                        color = liveTertiaryColor.copy(alpha = 0.20f),
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top)
+                    )
+                    drawRect(
+                        color = liveTertiaryColor.copy(alpha = 0.85f),
+                        topLeft = Offset(left, top),
+                        size = androidx.compose.ui.geometry.Size(right - left, bottom - top),
+                        style = androidx.compose.ui.graphics.drawscope.Stroke(width = 3f)
+                    )
+                }
             }
         }
 
@@ -1178,7 +1260,7 @@ private fun CameraCapture(
                         .padding(horizontal = 12.dp, vertical = 8.dp)
                 ) {
                     Text(
-                        "Tap boxes to select before capture",
+                        "Tap boxes (or drag to select) before capture",
                         style = MaterialTheme.typography.bodySmall
                     )
                 }
