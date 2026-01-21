@@ -295,14 +295,16 @@ private fun ReflectSheetContent(
     // Professional layout: actions are *absolutely* pinned to the bottom edge.
     // (No navigation-bar/IME inset padding applied to the bottom bar — per request.)
     val bottomBarHeight = 72.dp
-    Box(modifier = Modifier.fillMaxSize()) {
+
+    // Use a simple fill-max Column so the bottom bar is *physically* the last element in the
+    // layout tree (no BoxScope.align needed, which can break depending on receivers/imports).
+    Column(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
-                .fillMaxSize()
+                .weight(1f)
+                .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(top = 6.dp)
-                // Keep content from being hidden behind the pinned bar.
-                .padding(bottom = bottomBarHeight + 12.dp)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -508,7 +510,6 @@ private fun ReflectSheetContent(
             tonalElevation = 3.dp,
             shadowElevation = 8.dp,
             modifier = Modifier
-                .align(Alignment.BottomCenter)
                 .fillMaxWidth()
                 .height(bottomBarHeight)
         ) {
