@@ -26,6 +26,7 @@ import androidx.compose.foundation.layout.Row
 import androidx.compose.foundation.layout.Spacer
 import androidx.compose.foundation.layout.WindowInsets
 import androidx.compose.foundation.layout.WindowInsetsSides
+import androidx.compose.foundation.layout.ime
 import androidx.compose.foundation.layout.fillMaxSize
 import androidx.compose.foundation.layout.fillMaxWidth
 import androidx.compose.foundation.layout.height
@@ -38,9 +39,13 @@ import androidx.compose.foundation.layout.safeDrawing
 import androidx.compose.foundation.layout.size
 import androidx.compose.foundation.layout.only
 import androidx.compose.foundation.layout.windowInsetsPadding
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.ExperimentalFoundationApi
 import androidx.compose.foundation.gestures.detectDragGestures
 import androidx.compose.foundation.gestures.detectTapGestures
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
 import androidx.compose.foundation.pager.HorizontalPager
 import androidx.compose.foundation.pager.rememberPagerState
 import androidx.compose.foundation.shape.RoundedCornerShape
@@ -78,6 +83,7 @@ import androidx.compose.ui.draw.clip
 import androidx.compose.ui.layout.ContentScale
 import androidx.compose.ui.geometry.Offset
 import androidx.compose.ui.geometry.Rect
+import androidx.compose.ui.focus.onFocusChanged
 import androidx.compose.ui.graphics.Color
 import androidx.compose.ui.input.pointer.pointerInput
 import androidx.compose.ui.platform.LocalContext
@@ -485,10 +491,17 @@ private fun ReflectSheetContent(
                 }
 
                 ReflectPage.NOTE -> {
+                    // When the keyboard opens, ensure the focused field is brought into view.
+                    val noteBringIntoView = remember { BringIntoViewRequester() }
+                    val titleBringIntoView = remember { BringIntoViewRequester() }
+
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
+                            // Extra bottom padding when IME is shown prevents "squeezed" layouts
+                            // and keeps the caret/text visible above the keyboard.
+                            .windowInsetsPadding(WindowInsets.ime)
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -509,7 +522,13 @@ private fun ReflectSheetContent(
                             placeholder = { Text("Anything you’d like to remember?") },
                             modifier = Modifier
                                 .fillMaxWidth()
-                                .heightIn(min = 160.dp, max = 240.dp),
+                                .heightIn(min = 160.dp, max = 240.dp)
+                                .bringIntoViewRequester(noteBringIntoView)
+                                .onFocusChanged {
+                                    if (it.isFocused) {
+                                        scope.launch { noteBringIntoView.bringIntoView() }
+                                    }
+                                },
                             minLines = 5
                         )
 
@@ -518,17 +537,26 @@ private fun ReflectSheetContent(
                             onValueChange = onTitleChange,
                             label = { Text("Title (optional)") },
                             placeholder = { Text("E.g., Late night coding") },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .bringIntoViewRequester(titleBringIntoView)
+                                .onFocusChanged {
+                                    if (it.isFocused) {
+                                        scope.launch { titleBringIntoView.bringIntoView() }
+                                    }
+                                },
                             singleLine = true
                         )
                     }
                 }
 
                 ReflectPage.PLACE -> {
+                    val placeBringIntoView = remember { BringIntoViewRequester() }
                     Column(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
+                            .windowInsetsPadding(WindowInsets.ime)
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {
@@ -548,7 +576,14 @@ private fun ReflectSheetContent(
                             onValueChange = onPlaceChange,
                             label = { Text("Place") },
                             placeholder = { Text("Auto-detected or enter a place") },
-                            modifier = Modifier.fillMaxWidth(),
+                            modifier = Modifier
+                                .fillMaxWidth()
+                                .bringIntoViewRequester(placeBringIntoView)
+                                .onFocusChanged {
+                                    if (it.isFocused) {
+                                        scope.launch { placeBringIntoView.bringIntoView() }
+                                    }
+                                },
                             singleLine = true
                         )
 
@@ -573,6 +608,8 @@ private fun ReflectSheetContent(
             modifier = Modifier
                 .fillMaxWidth()
                 .height(bottomBarHeight)
+                // Keep actions reachable when the keyboard is open.
+                .windowInsetsPadding(WindowInsets.ime)
         ) {
             Row(
                 modifier = Modifier
