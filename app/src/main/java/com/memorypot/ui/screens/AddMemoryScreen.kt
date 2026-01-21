@@ -292,49 +292,17 @@ private fun ReflectSheetContent(
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { pages.size })
     val scope = rememberCoroutineScope()
 
-    // Professional layout: keep actions pinned to the bottom (like a proper bottom bar)
-    // and let the paged content scroll independently above it.
-    Scaffold(
-        bottomBar = {
-            Surface(
-                tonalElevation = 3.dp,
-                shadowElevation = 8.dp
-            ) {
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .windowInsetsPadding(WindowInsets.navigationBars)
-                        .imePadding()
-                        .padding(horizontal = 16.dp, vertical = 12.dp),
-                    horizontalArrangement = Arrangement.spacedBy(12.dp),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
-                    OutlinedButton(
-                        onClick = onRetake,
-                        modifier = Modifier.weight(1f)
-                    ) { Text("Retake") }
-
-                    Button(
-                        onClick = onDoneClick,
-                        enabled = !state.isSaving,
-                        modifier = Modifier.weight(1f)
-                    ) {
-                        if (state.isSaving) {
-                            CircularProgressIndicator(modifier = Modifier.size(18.dp))
-                            Spacer(Modifier.size(8.dp))
-                        }
-                        Text("Save")
-                    }
-                }
-            }
-        }
-    ) { innerPadding ->
+    // Professional layout: actions are *absolutely* pinned to the bottom edge.
+    // (No navigation-bar/IME inset padding applied to the bottom bar — per request.)
+    val bottomBarHeight = 72.dp
+    Box(modifier = Modifier.fillMaxSize()) {
         Column(
             modifier = Modifier
                 .fillMaxSize()
-                .padding(innerPadding)
                 .padding(horizontal = 16.dp)
                 .padding(top = 6.dp)
+                // Keep content from being hidden behind the pinned bar.
+                .padding(bottom = bottomBarHeight + 12.dp)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
             verticalArrangement = Arrangement.spacedBy(12.dp)
         ) {
@@ -532,6 +500,40 @@ private fun ReflectSheetContent(
                         }
                         Spacer(Modifier.height(12.dp))
                     }
+                }
+            }
+        }
+
+        Surface(
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
+            modifier = Modifier
+                .align(Alignment.BottomCenter)
+                .fillMaxWidth()
+                .height(bottomBarHeight)
+        ) {
+            Row(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(horizontal = 16.dp, vertical = 12.dp),
+                horizontalArrangement = Arrangement.spacedBy(12.dp),
+                verticalAlignment = Alignment.CenterVertically
+            ) {
+                OutlinedButton(
+                    onClick = onRetake,
+                    modifier = Modifier.weight(1f)
+                ) { Text("Retake") }
+
+                Button(
+                    onClick = onDoneClick,
+                    enabled = !state.isSaving,
+                    modifier = Modifier.weight(1f)
+                ) {
+                    if (state.isSaving) {
+                        CircularProgressIndicator(modifier = Modifier.size(18.dp))
+                        Spacer(Modifier.size(8.dp))
+                    }
+                    Text("Save")
                 }
             }
         }
@@ -908,10 +910,10 @@ private fun CameraCapture(
             modifier = Modifier.fillMaxSize(),
             factory = { ctx ->
                 val previewView = PreviewView(ctx).apply {
-                    // Use FILL_CENTER so the camera preview matches what users expect (edge-to-edge).
-                    // IMPORTANT: when using FILL_CENTER, the preview may be center-cropped.
-                    // Our overlay math below uses the same scaling model so boxes and taps line up.
-                    scaleType = PreviewView.ScaleType.FILL_CENTER
+                    // Use FIT_CENTER for the most reliable coordinate mapping between
+                    // ImageAnalysis (ML Kit) and what the user sees. This avoids OEM-specific
+                    // center-crop transforms that can make boxes/taps appear "not working".
+                    scaleType = PreviewView.ScaleType.FIT_CENTER
                     // COMPATIBLE is more reliable across OEM devices, especially when embedded
                     // in Compose via AndroidView.
                     implementationMode = PreviewView.ImplementationMode.COMPATIBLE
@@ -1085,8 +1087,8 @@ private fun CameraCapture(
                         if (liveImageW <= 0 || liveImageH <= 0) return@detectTapGestures
                         val w = size.width
                         val h = size.height
-                        // PreviewView is FILL_CENTER (center-crop), so use the *max* scale.
-                        val scale = kotlin.math.max(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                        // PreviewView is FIT_CENTER, so use the *min* scale.
+                        val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
                         val dx = (w - liveImageW * scale) / 2f
                         val dy = (h - liveImageH * scale) / 2f
 
@@ -1110,8 +1112,8 @@ private fun CameraCapture(
             val w = size.width
             val h = size.height
             if (liveImageW > 0 && liveImageH > 0) {
-                // PreviewView is FILL_CENTER (center-crop), so use the *max* scale.
-                val scale = kotlin.math.max(w / liveImageW.toFloat(), h / liveImageH.toFloat())
+                // PreviewView is FIT_CENTER, so use the *min* scale.
+                val scale = kotlin.math.min(w / liveImageW.toFloat(), h / liveImageH.toFloat())
                 val dx = (w - liveImageW * scale) / 2f
                 val dy = (h - liveImageH * scale) / 2f
 
