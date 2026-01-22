@@ -618,19 +618,13 @@ private fun ReflectSheetContent(
             }
         }
 
-        Box(
+        Surface(
+            tonalElevation = 3.dp,
+            shadowElevation = 8.dp,
             modifier = Modifier
                 .fillMaxWidth()
-                // Lift the action bar above the keyboard without shrinking its fixed height.
-                .imePadding()
+                .height(bottomBarHeight)
         ) {
-            Surface(
-                tonalElevation = 3.dp,
-                shadowElevation = 8.dp,
-                modifier = Modifier
-                    .fillMaxWidth()
-                    .height(bottomBarHeight)
-            ) {
             Row(
                 modifier = Modifier
                     .fillMaxSize()
@@ -655,7 +649,6 @@ private fun ReflectSheetContent(
                     Text("Save")
                 }
             }
-        }
         }
     }
 }
