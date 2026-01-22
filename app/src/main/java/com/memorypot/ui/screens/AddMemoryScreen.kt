@@ -351,7 +351,7 @@ private fun ReflectSheetContent(
     // When the keyboard is shown, tighten vertical chrome so the active editor has room.
     val density = androidx.compose.ui.platform.LocalDensity.current
     val imeVisible = WindowInsets.ime.getBottom(density) > 0
-    val topChromePad = if (imeVisible) 0.dp else 6.dp
+    val topChromePad = if (imeVisible) 0.dp else 2.dp
     val sectionGap = if (imeVisible) 8.dp else 12.dp
 
     // Professional layout: actions are *absolutely* pinned to the bottom edge.
@@ -367,14 +367,14 @@ private fun ReflectSheetContent(
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
                 .padding(top = topChromePad)
-                .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
+                ,
             verticalArrangement = Arrangement.spacedBy(sectionGap)
         ) {
             // Top handle + segmented control (Apple Photos vibe)
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .padding(top = if (imeVisible) 4.dp else 8.dp, bottom = 2.dp)
+                    .padding(top = if (imeVisible) 2.dp else 4.dp, bottom = 2.dp)
                     .size(width = 44.dp, height = 5.dp)
                     .clip(RoundedCornerShape(99.dp))
                     .background(MaterialTheme.colorScheme.outlineVariant)
