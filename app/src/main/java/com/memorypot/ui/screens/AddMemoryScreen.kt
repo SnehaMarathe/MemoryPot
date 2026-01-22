@@ -240,13 +240,23 @@ fun AddMemoryScreen(
             } else {
                 // Redesigned: keep the photo visible without letting inputs overlap it.
                 Column(Modifier.fillMaxSize()) {
+                    // When the IME (keyboard) opens, the fixed photo header can waste a lot of
+                    // vertical space and make text entry feel cramped. We keep the photo visible,
+                    // but collapse it while the keyboard is shown to free up room for editors.
+                    val density = androidx.compose.ui.platform.LocalDensity.current
+                    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+                    val targetPhotoHeight = if (imeVisible) 120.dp else 260.dp
+                    val photoHeight by androidx.compose.animation.core.animateDpAsState(
+                        targetValue = targetPhotoHeight,
+                        label = "photoHeight"
+                    )
                     AsyncImage(
                         model = photoPath,
                         contentDescription = "Captured photo",
                         contentScale = ContentScale.Crop,
                         modifier = Modifier
                             .fillMaxWidth()
-                            .height(260.dp)
+                            .height(photoHeight)
                     )
 
                 // Auto-generate AI keywords once per capture.
@@ -338,6 +348,12 @@ private fun ReflectSheetContent(
     val pagerState = rememberPagerState(initialPage = 0, pageCount = { pages.size })
     val scope = rememberCoroutineScope()
 
+    // When the keyboard is shown, tighten vertical chrome so the active editor has room.
+    val density = androidx.compose.ui.platform.LocalDensity.current
+    val imeVisible = WindowInsets.ime.getBottom(density) > 0
+    val topChromePad = if (imeVisible) 0.dp else 6.dp
+    val sectionGap = if (imeVisible) 8.dp else 12.dp
+
     // Professional layout: actions are *absolutely* pinned to the bottom edge.
     // (No navigation-bar/IME inset padding applied to the bottom bar — per request.)
     val bottomBarHeight = 72.dp
@@ -350,15 +366,15 @@ private fun ReflectSheetContent(
                 .weight(1f)
                 .fillMaxWidth()
                 .padding(horizontal = 16.dp)
-                .padding(top = 6.dp)
+                .padding(top = topChromePad)
                 .windowInsetsPadding(WindowInsets.safeDrawing.only(androidx.compose.foundation.layout.WindowInsetsSides.Top)),
-            verticalArrangement = Arrangement.spacedBy(12.dp)
+            verticalArrangement = Arrangement.spacedBy(sectionGap)
         ) {
             // Top handle + segmented control (Apple Photos vibe)
             Box(
                 modifier = Modifier
                     .align(Alignment.CenterHorizontally)
-                    .padding(top = 8.dp, bottom = 2.dp)
+                    .padding(top = if (imeVisible) 4.dp else 8.dp, bottom = 2.dp)
                     .size(width = 44.dp, height = 5.dp)
                     .clip(RoundedCornerShape(99.dp))
                     .background(MaterialTheme.colorScheme.outlineVariant)
@@ -398,7 +414,7 @@ private fun ReflectSheetContent(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
-                            // Ensure editable fields (e.g., "Edit as text") can scroll above the keyboard.
+                            // Allow the clues editor to scroll above the keyboard.
                             .windowInsetsPadding(WindowInsets.ime)
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
