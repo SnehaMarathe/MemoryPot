@@ -398,6 +398,8 @@ private fun ReflectSheetContent(
                         modifier = Modifier
                             .fillMaxSize()
                             .verticalScroll(rememberScrollState())
+                            // Ensure editable fields (e.g., "Edit as text") can scroll above the keyboard.
+                            .windowInsetsPadding(WindowInsets.ime)
                             .padding(bottom = 8.dp),
                         verticalArrangement = Arrangement.spacedBy(10.dp)
                     ) {

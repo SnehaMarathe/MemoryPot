@@ -60,6 +60,12 @@ import androidx.compose.foundation.layout.RowScope
 import androidx.compose.foundation.border
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.layout.defaultMinSize
+import androidx.compose.foundation.relocation.BringIntoViewRequester
+import androidx.compose.foundation.relocation.bringIntoViewRequester
+import androidx.compose.runtime.rememberCoroutineScope
+import androidx.compose.ui.focus.onFocusChanged
+import kotlinx.coroutines.delay
+import kotlinx.coroutines.launch
 
 /**
  * A “Play Store ready” top bar:
@@ -650,6 +656,11 @@ private fun IOSMultilineField(
     minLines: Int,
     modifier: Modifier = Modifier
 ) {
+    // When the keyboard appears, make sure the caret stays visible by requesting the
+    // closest scrollable parent to bring this field into view.
+    val bringIntoViewRequester = remember { BringIntoViewRequester() }
+    val scope = rememberCoroutineScope()
+
     Column(modifier = modifier) {
         Text(label, style = MaterialTheme.typography.labelMedium, color = MaterialTheme.colorScheme.onSurfaceVariant)
         Spacer(Modifier.height(6.dp))
@@ -664,7 +675,7 @@ private fun IOSMultilineField(
             if (value.isBlank()) {
                 Text(placeholder, color = MaterialTheme.colorScheme.onSurfaceVariant)
             }
-            androidx.compose.foundation.text.BasicTextField(
+            BasicTextField(
                 value = value,
                 onValueChange = onValueChange,
                 singleLine = false,
@@ -672,6 +683,16 @@ private fun IOSMultilineField(
                 modifier = Modifier
                     .fillMaxWidth()
                     .padding(start = 2.dp) // critical: prevents first-glyph clipping
+                    .bringIntoViewRequester(bringIntoViewRequester)
+                    .onFocusChanged { fs ->
+                        if (fs.isFocused) {
+                            scope.launch {
+                                // Wait a beat for the IME to settle before scrolling.
+                                delay(150)
+                                bringIntoViewRequester.bringIntoView()
+                            }
+                        }
+                    }
             )
         }
     }
