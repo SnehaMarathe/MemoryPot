@@ -194,7 +194,14 @@ fun AddMemoryScreen(
             Row(
                 modifier = Modifier
                     .fillMaxWidth()
-                    .windowInsetsPadding(WindowInsets.safeDrawing)
+                    // Don't let the keyboard (IME) affect the top app header height.
+                    // Some Compose versions include IME in WindowInsets.safeDrawing, which
+                    // can create a huge blank header area when typing.
+                    .windowInsetsPadding(
+                        WindowInsets.safeDrawing.only(
+                            WindowInsetsSides.Top + WindowInsetsSides.Horizontal
+                        )
+                    )
                     .padding(horizontal = 8.dp, vertical = 6.dp),
                 verticalAlignment = Alignment.CenterVertically
             ) {
